@@ -1,8 +1,8 @@
 # @dougschaefer/azure
 
-Azure infrastructure management extension for [Swamp](https://swamp.club) — the AI-native automation CLI.
+This extension gives [Swamp](https://swamp.club) native control over Azure infrastructure, covering the resource types that show up in real deployments (VNets with subnets and peering, NSGs with security rules, VMs with full lifecycle operations, vWAN with hub connections and VPN sites) rather than a simplified subset that only works for demos. Everything runs through the Azure CLI, so authentication delegates to whatever `az login` session exists on the machine and there is nothing proprietary between you and your subscription.
 
-Provides 13 model types covering Azure resource groups, networking (including vWAN), compute, data services, security, and topology visualization. All operations use the Azure CLI (`az`), so authentication is handled by whatever `az login` session exists on the machine running Swamp.
+Beyond the standard CRUD operations, the extension includes topology visualization that generates Azure-branded Mermaid diagrams of your resource group's network architecture, cost estimation against the public Azure Retail Pricing API, and ARM template export for IaC documentation. All outputs persist as versioned data in Swamp.
 
 ## Installation
 
@@ -12,13 +12,15 @@ swamp extension pull @dougschaefer/azure
 
 ## Prerequisites
 
-- [Swamp CLI](https://swamp.club) installed
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) installed and authenticated (`az login`)
-- An Azure subscription
+You need the [Swamp CLI](https://swamp.club), the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) installed and authenticated (`az login`), and an Azure subscription.
 
 ## Model Types
 
+The extension provides 13 model types organized by Azure service category. Each model maps to a specific Azure resource type and exposes the operations you would otherwise run through `az` commands or the portal, tracked as versioned Swamp resources with full audit history.
+
 ### Networking
+
+The networking models cover the full stack from VNets and subnets up through NSGs, route tables, public IPs, NAT gateways, Azure Firewall, and vWAN with its hub-and-spoke topology. The vWAN model alone has 18 methods because virtual WAN deployments involve WANs, hubs, hub connections, VPN sites, and VPN gateways as distinct but interdependent resources.
 
 | Model | Type | Description |
 |-------|------|-------------|
@@ -32,11 +34,15 @@ swamp extension pull @dougschaefer/azure
 
 ### Compute
 
+The VM model provides full lifecycle management, from creation and sizing through start, stop, deallocate, restart, resize, and arbitrary command execution via `runCommand`.
+
 | Model | Type | Description |
 |-------|------|-------------|
 | VM | `@dougschaefer/azure-vm` | Virtual machines with full lifecycle management |
 
 ### Data
+
+SQL logical servers and databases alongside storage accounts covering Blob, File, Table, and Queue services.
 
 | Model | Type | Description |
 |-------|------|-------------|
@@ -45,11 +51,15 @@ swamp extension pull @dougschaefer/azure
 
 ### Security
 
+Key Vault for secrets, keys, and certificate management, wired into Swamp's resource tracking so you have visibility into vault state alongside the resources that consume those secrets.
+
 | Model | Type | Description |
 |-------|------|-------------|
 | Key Vault | `@dougschaefer/azure-key-vault` | Azure Key Vault for secrets, keys, and certificates |
 
 ### Management
+
+Resource group operations and the topology model, which generates Mermaid diagrams, cost estimates, and ARM template exports for any resource group.
 
 | Model | Type | Description |
 |-------|------|-------------|
@@ -90,7 +100,7 @@ Create a `@dougschaefer/azure-topology` model instance and run:
 swamp model execute --method generate
 ```
 
-This produces a Mermaid diagram of your resource group's network topology — VNets, subnets, VMs, NSGs, firewalls, NAT gateways, route tables, and public IPs — with Azure-branded colors and relationship arrows. The diagram renders natively in GitHub markdown, VS Code, and most documentation tools.
+This produces a Mermaid diagram of your resource group's network topology, covering VNets, subnets, VMs, NSGs, firewalls, NAT gateways, route tables, and public IPs with Azure-branded colors and relationship arrows. The diagram renders natively in GitHub markdown, VS Code, and most documentation tools.
 
 ### 4. Estimate costs
 
@@ -148,12 +158,7 @@ Resource Group · Public IP · NAT Gateway · Storage Account · Key Vault
 
 ## Authentication
 
-This extension delegates all authentication to the Azure CLI. It works with any `az login` method:
-
-- **Interactive login:** `az login`
-- **Service principal:** `az login --service-principal -u <app-id> -p <secret> --tenant <tenant-id>`
-- **Managed identity:** `az login --identity`
-- **Device code:** `az login --use-device-code`
+The extension delegates all authentication to the Azure CLI, which means it works with any method `az login` supports, from interactive browser login through service principal credentials, managed identity, and device code flow. There is no separate credential store or auth configuration in the extension itself.
 
 For multi-subscription environments, each model instance can target a different subscription via the `subscriptionId` global argument. Credentials can be stored in Swamp vault:
 
@@ -163,17 +168,7 @@ ${{ vault.get('azure', 'SUBSCRIPTION_ID') }}
 
 ## Topology Visualization
 
-The `generate` method on `@dougschaefer/azure-topology` produces Mermaid diagrams with:
-
-- VNets as subgraphs with address spaces
-- Subnets with CIDR prefixes
-- VMs with size and power state
-- NSGs with rule counts, connected to their associated subnets
-- Route tables with route counts
-- Azure Firewalls connected to AzureFirewallSubnet
-- NAT gateways connected to their subnets
-- Public IPs associated to VMs and firewalls
-- Azure-branded color coding for each resource type
+The `generate` method on `@dougschaefer/azure-topology` produces Mermaid diagrams that render the full network topology of a resource group with Azure-branded color coding for each resource type. The diagram includes VNets as subgraphs with address spaces, subnets with CIDR prefixes, VMs with size and power state, NSGs with rule counts connected to their associated subnets, route tables with route counts, Azure Firewalls connected to AzureFirewallSubnet, NAT gateways connected to their subnets, and public IPs associated to VMs and firewalls.
 
 Example output renders as:
 
