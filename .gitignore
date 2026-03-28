@@ -1,2 +1,5 @@
 .swamp/
-.DS_Store
+vaults/
+models/
+workflows/
+*.secret
