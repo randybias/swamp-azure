@@ -2,6 +2,7 @@ import { z } from "npm:zod@4";
 import {
   az,
   AzureGlobalArgsSchema,
+  pollUntilReady,
   requireResourceGroup,
   sanitizeInstanceName,
 } from "./_helpers.ts";
@@ -39,7 +40,7 @@ const VmInstanceViewSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-vm",
-  version: "2026.03.27.1",
+  version: "2026.03.28.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vm: {
@@ -113,6 +114,38 @@ export const model = {
           ],
           g.subscriptionId,
         );
+        const handle = await context.writeResource(
+          "vm",
+          sanitizeInstanceName(args.name),
+          vm,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    sync: {
+      description:
+        "Refresh the stored state of a VM without making changes. Useful for drift detection and monitoring.",
+      arguments: z.object({
+        name: z.string().describe("VM name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const vm = await az(
+          [
+            "vm",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+            "--show-details",
+          ],
+          g.subscriptionId,
+        );
+        context.logger.info("Synced VM {name}", { name: args.name });
         const handle = await context.writeResource(
           "vm",
           sanitizeInstanceName(args.name),
@@ -284,6 +317,37 @@ export const model = {
           ],
           g.subscriptionId,
         );
+
+        // Poll until VM is running
+        const ready = await pollUntilReady(async () => {
+          try {
+            const view = await az(
+              [
+                "vm",
+                "get-instance-view",
+                "--name",
+                args.name,
+                "--resource-group",
+                rg,
+              ],
+              g.subscriptionId,
+            ) as Record<string, unknown>;
+            const statuses = (view.statuses ?? []) as Array<
+              Record<string, string>
+            >;
+            return statuses.some((s) => s.code === "PowerState/running");
+          } catch {
+            return false;
+          }
+        }, { label: `VM ${args.name} ready` });
+
+        if (!ready) {
+          context.logger.warning(
+            "VM {name} created but readiness polling timed out",
+            { name: args.name },
+          );
+        }
+
         const handle = await context.writeResource(
           "vm",
           sanitizeInstanceName(args.name),
@@ -347,6 +411,28 @@ export const model = {
         );
 
         context.logger.info("Started VM {name}", { name: args.name });
+
+        await pollUntilReady(async () => {
+          try {
+            const view = await az(
+              [
+                "vm",
+                "get-instance-view",
+                "--name",
+                args.name,
+                "--resource-group",
+                rg,
+              ],
+              g.subscriptionId,
+            ) as Record<string, unknown>;
+            const statuses = (view.statuses ?? []) as Array<
+              Record<string, string>
+            >;
+            return statuses.some((s) => s.code === "PowerState/running");
+          } catch {
+            return false;
+          }
+        }, { intervalMs: 3000, timeoutMs: 120000 });
 
         const vm = await az(
           [

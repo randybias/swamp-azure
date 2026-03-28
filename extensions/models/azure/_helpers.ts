@@ -58,3 +58,27 @@ export function requireResourceGroup(
   }
   return rg;
 }
+
+/**
+ * Poll a condition function until it returns true or the timeout expires.
+ * Used for readiness polling after create/update operations where the CLI
+ * returns before the resource reaches a stable state.
+ *
+ * @param check - async function that returns true when the resource is ready
+ * @param options - intervalMs (default 5000), timeoutMs (default 300000), label for logging
+ * @returns true if ready, false if timed out
+ */
+export async function pollUntilReady(
+  check: () => Promise<boolean>,
+  options?: { intervalMs?: number; timeoutMs?: number; label?: string },
+): Promise<boolean> {
+  const interval = options?.intervalMs ?? 5000;
+  const timeout = options?.timeoutMs ?? 300000;
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    if (await check()) return true;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return false;
+}

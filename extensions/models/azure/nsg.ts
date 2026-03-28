@@ -47,7 +47,7 @@ const NsgSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-nsg",
-  version: "2026.03.27.1",
+  version: "2026.03.28.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     nsg: {
@@ -121,6 +121,38 @@ export const model = {
           ],
           g.subscriptionId,
         );
+        const handle = await context.writeResource(
+          "nsg",
+          sanitizeInstanceName(args.name),
+          nsg,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    sync: {
+      description:
+        "Refresh the stored state of an NSG and its rules without making changes.",
+      arguments: z.object({
+        name: z.string().describe("NSG name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const nsg = await az(
+          [
+            "network",
+            "nsg",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        context.logger.info("Synced NSG {name}", { name: args.name });
         const handle = await context.writeResource(
           "nsg",
           sanitizeInstanceName(args.name),

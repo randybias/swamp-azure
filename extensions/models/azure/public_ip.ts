@@ -37,7 +37,7 @@ const PublicIpSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-public-ip",
-  version: "2026.03.27.1",
+  version: "2026.03.28.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     publicIp: {
@@ -110,6 +110,40 @@ export const model = {
           sanitizeInstanceName(args.name),
           ip,
         );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    sync: {
+      description:
+        "Refresh the stored state of a public IP address without making changes.",
+      arguments: z.object({
+        name: z.string().describe("Public IP name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const ip = await az(
+          [
+            "network",
+            "public-ip",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const handle = await context.writeResource(
+          "publicIp",
+          sanitizeInstanceName(args.name),
+          ip,
+        );
+        context.logger.info("Synced public IP {name}", {
+          name: args.name,
+        });
         return { dataHandles: [handle] };
       },
     },

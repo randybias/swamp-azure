@@ -58,7 +58,7 @@ const FirewallPolicySchema = z
 
 export const model = {
   type: "@dougschaefer/azure-firewall",
-  version: "2026.03.05.1",
+  version: "2026.03.28.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     firewall: {
@@ -145,6 +145,40 @@ export const model = {
           sanitizeInstanceName(args.name),
           fw,
         );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    sync: {
+      description:
+        "Refresh the stored state of an Azure Firewall without making changes.",
+      arguments: z.object({
+        name: z.string().describe("Firewall name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const fw = await az(
+          [
+            "network",
+            "firewall",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const handle = await context.writeResource(
+          "firewall",
+          sanitizeInstanceName(args.name),
+          fw,
+        );
+        context.logger.info("Synced Azure Firewall {name}", {
+          name: args.name,
+        });
         return { dataHandles: [handle] };
       },
     },

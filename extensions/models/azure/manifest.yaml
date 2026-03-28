@@ -1,15 +1,16 @@
 manifestVersion: 1
 name: "@dougschaefer/azure"
-version: "2026.03.27.1"
-description: "Azure infrastructure management via az CLI — VMs, VNets, NSGs, firewalls, route tables, NAT gateways, public IPs, Key Vault, SQL, storage accounts, vWAN, and topology visualization. Multi-tenant with vault-based credential resolution."
-repository: https://dev.azure.com/AmericanSound/ASEI/_git/asei-swamp-catalog
+version: "2026.03.28.1"
+description: "Azure infrastructure management via az CLI — VMs, VNets, NSGs, firewalls, route tables, NAT gateways, public IPs, Key Vault, SQL, storage accounts, vWAN, DNS zones, Azure DevOps, and topology visualization. Includes sync methods and readiness polling."
+repository: https://github.com/dougschaefer6/swamp-azure
 labels:
   - azure
   - cloud
   - networking
   - vm
   - firewall
-  - msp
+  - dns
+  - devops
 models:
   - azure/firewall.ts
   - azure/key_vault.ts
@@ -24,3 +25,5 @@ models:
   - azure/vm.ts
   - azure/vnet.ts
   - azure/vwan.ts
+  - azure/dns.ts
+  - azure/devops.ts

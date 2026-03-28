@@ -52,7 +52,7 @@ const PeeringSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-vnet",
-  version: "2026.03.27.1",
+  version: "2026.03.28.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vnet: {
@@ -132,6 +132,38 @@ export const model = {
           ],
           g.subscriptionId,
         );
+        const handle = await context.writeResource(
+          "vnet",
+          sanitizeInstanceName(args.name),
+          vnet,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    sync: {
+      description:
+        "Refresh the stored state of a VNet and its subnets without making changes.",
+      arguments: z.object({
+        name: z.string().describe("VNet name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const vnet = await az(
+          [
+            "network",
+            "vnet",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        context.logger.info("Synced VNet {name}", { name: args.name });
         const handle = await context.writeResource(
           "vnet",
           sanitizeInstanceName(args.name),

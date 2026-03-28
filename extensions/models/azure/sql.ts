@@ -42,7 +42,7 @@ const SqlDatabaseSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-sql",
-  version: "2026.03.27.1",
+  version: "2026.03.28.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     server: {
@@ -123,6 +123,80 @@ export const model = {
           sanitizeInstanceName(args.name),
           server,
         );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    syncServer: {
+      description:
+        "Refresh the stored state of a SQL server without making changes.",
+      arguments: z.object({
+        name: z.string().describe("SQL server name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const server = await az(
+          [
+            "sql",
+            "server",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const handle = await context.writeResource(
+          "server",
+          sanitizeInstanceName(args.name),
+          server,
+        );
+        context.logger.info("Synced SQL server {name}", {
+          name: args.name,
+        });
+        return { dataHandles: [handle] };
+      },
+    },
+
+    syncDatabase: {
+      description:
+        "Refresh the stored state of a database without making changes.",
+      arguments: z.object({
+        name: z.string().describe("Database name"),
+        serverName: z.string().describe("SQL server name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const db = await az(
+          [
+            "sql",
+            "db",
+            "show",
+            "--name",
+            args.name,
+            "--server",
+            args.serverName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+
+        const instanceName = `${args.serverName}--${args.name}`;
+        const handle = await context.writeResource(
+          "database",
+          sanitizeInstanceName(instanceName),
+          db,
+        );
+        context.logger.info("Synced database {name} on {server}", {
+          name: args.name,
+          server: args.serverName,
+        });
         return { dataHandles: [handle] };
       },
     },

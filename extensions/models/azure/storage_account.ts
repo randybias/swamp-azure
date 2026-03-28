@@ -28,7 +28,7 @@ const StorageAccountSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-storage-account",
-  version: "2026.03.05.1",
+  version: "2026.03.28.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     storageAccount: {
@@ -103,6 +103,40 @@ export const model = {
           sanitizeInstanceName(args.name),
           acct,
         );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    sync: {
+      description:
+        "Refresh the stored state of a storage account without making changes.",
+      arguments: z.object({
+        name: z.string().describe("Storage account name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const acct = await az(
+          [
+            "storage",
+            "account",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const handle = await context.writeResource(
+          "storageAccount",
+          sanitizeInstanceName(args.name),
+          acct,
+        );
+        context.logger.info("Synced storage account {name}", {
+          name: args.name,
+        });
         return { dataHandles: [handle] };
       },
     },
