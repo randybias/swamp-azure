@@ -261,6 +261,7 @@ export const model = {
             args.name,
             "--resource-group",
             rg,
+            "--yes",
           ],
           g.subscriptionId,
         );

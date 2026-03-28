@@ -39,7 +39,7 @@ const VmInstanceViewSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-vm",
-  version: "2026.03.05.1",
+  version: "2026.03.27.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vm: {
@@ -246,7 +246,7 @@ export const model = {
         if (args.publicIpAddress !== undefined) {
           cmdArgs.push(
             "--public-ip-address",
-            args.publicIpAddress || '""',
+            args.publicIpAddress || "",
           );
         }
         if (args.osDiskSizeGb) {
@@ -294,7 +294,8 @@ export const model = {
     },
 
     delete: {
-      description: "Delete a virtual machine.",
+      description:
+        "Delete a virtual machine. Note: associated NIC, OS disk, and public IP are NOT automatically deleted — clean up separately.",
       arguments: z.object({
         name: z.string().describe("VM name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
@@ -587,12 +588,20 @@ export const model = {
           ...args.scripts,
         ];
 
-        await az(cmdArgs, g.subscriptionId);
+        const result = await az(cmdArgs, g.subscriptionId);
 
         context.logger.info("Executed command on VM {name}", {
           name: args.name,
         });
 
+        if (result) {
+          const handle = await context.writeResource(
+            "instanceView",
+            sanitizeInstanceName(`${args.name}-cmd`),
+            result,
+          );
+          return { dataHandles: [handle] };
+        }
         return { dataHandles: [] };
       },
     },

@@ -34,7 +34,7 @@ const RouteTableSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-route-table",
-  version: "2026.03.05.1",
+  version: "2026.03.27.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     routeTable: {
@@ -335,6 +335,74 @@ export const model = {
       },
     },
 
+    updateRoute: {
+      description: "Update an existing route in a route table.",
+      arguments: z.object({
+        routeTableName: z.string().describe("Route table name"),
+        routeName: z.string().describe("Route name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+        addressPrefix: z
+          .string()
+          .optional()
+          .describe("New destination CIDR"),
+        nextHopType: z
+          .enum([
+            "VirtualAppliance",
+            "VnetLocal",
+            "Internet",
+            "VirtualNetworkGateway",
+            "None",
+          ])
+          .optional()
+          .describe("New next hop type"),
+        nextHopIpAddress: z
+          .string()
+          .optional()
+          .describe("New next hop IP (required for VirtualAppliance)"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const cmdArgs = [
+          "network",
+          "route-table",
+          "route",
+          "update",
+          "--route-table-name",
+          args.routeTableName,
+          "--name",
+          args.routeName,
+          "--resource-group",
+          rg,
+        ];
+
+        if (args.addressPrefix) {
+          cmdArgs.push("--address-prefix", args.addressPrefix);
+        }
+        if (args.nextHopType) {
+          cmdArgs.push("--next-hop-type", args.nextHopType);
+        }
+        if (args.nextHopIpAddress) {
+          cmdArgs.push("--next-hop-ip-address", args.nextHopIpAddress);
+        }
+
+        const route = await az(cmdArgs, g.subscriptionId);
+
+        context.logger.info("Updated route {route} in {table}", {
+          route: args.routeName,
+          table: args.routeTableName,
+        });
+
+        const instanceName = `${args.routeTableName}--${args.routeName}`;
+        const handle = await context.writeResource(
+          "route",
+          sanitizeInstanceName(instanceName),
+          route,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
     deleteRoute: {
       description: "Delete a route from a route table.",
       arguments: z.object({
@@ -357,6 +425,7 @@ export const model = {
             args.routeName,
             "--resource-group",
             rg,
+            "--yes",
           ],
           g.subscriptionId,
         );

@@ -52,7 +52,7 @@ const PeeringSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-vnet",
-  version: "2026.03.05.1",
+  version: "2026.03.27.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vnet: {
@@ -370,6 +370,66 @@ export const model = {
       },
     },
 
+    updateSubnet: {
+      description: "Update a subnet — attach or detach NSG or route table.",
+      arguments: z.object({
+        vnetName: z.string().describe("VNet name"),
+        subnetName: z.string().describe("Subnet name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+        nsgName: z
+          .string()
+          .optional()
+          .describe(
+            "Network security group to associate (empty string to detach)",
+          ),
+        routeTableName: z
+          .string()
+          .optional()
+          .describe("Route table to associate (empty string to detach)"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const cmdArgs = [
+          "network",
+          "vnet",
+          "subnet",
+          "update",
+          "--vnet-name",
+          args.vnetName,
+          "--name",
+          args.subnetName,
+          "--resource-group",
+          rg,
+        ];
+
+        if (args.nsgName !== undefined) {
+          cmdArgs.push(
+            "--network-security-group",
+            args.nsgName || "",
+          );
+        }
+        if (args.routeTableName !== undefined) {
+          cmdArgs.push("--route-table", args.routeTableName || "");
+        }
+
+        const subnet = await az(cmdArgs, g.subscriptionId);
+
+        context.logger.info("Updated subnet {subnet} in {vnet}", {
+          subnet: args.subnetName,
+          vnet: args.vnetName,
+        });
+
+        const instanceName = `${args.vnetName}--${args.subnetName}`;
+        const handle = await context.writeResource(
+          "subnet",
+          sanitizeInstanceName(instanceName),
+          subnet,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
     deleteSubnet: {
       description: "Delete a subnet from a VNet.",
       arguments: z.object({
@@ -392,6 +452,7 @@ export const model = {
             args.subnetName,
             "--resource-group",
             rg,
+            "--yes",
           ],
           g.subscriptionId,
         );
@@ -548,6 +609,7 @@ export const model = {
             args.peeringName,
             "--resource-group",
             rg,
+            "--yes",
           ],
           g.subscriptionId,
         );

@@ -42,7 +42,7 @@ const SqlDatabaseSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-sql",
-  version: "2026.03.05.1",
+  version: "2026.03.27.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     server: {
@@ -280,6 +280,41 @@ export const model = {
       },
     },
 
+    getDatabase: {
+      description: "Get a single database on a SQL server.",
+      arguments: z.object({
+        name: z.string().describe("Database name"),
+        serverName: z.string().describe("SQL server name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const db = await az(
+          [
+            "sql",
+            "db",
+            "show",
+            "--name",
+            args.name,
+            "--server",
+            args.serverName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+
+        const instanceName = `${args.serverName}--${args.name}`;
+        const handle = await context.writeResource(
+          "database",
+          sanitizeInstanceName(instanceName),
+          db,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
     createDatabase: {
       description: "Create a database on a SQL server.",
       arguments: z.object({
@@ -336,7 +371,7 @@ export const model = {
           cmdArgs.push("--compute-model", args.computeModel);
         }
         if (args.maxSizeGb) {
-          cmdArgs.push("--max-size", `${args.maxSizeGb}GB`);
+          cmdArgs.push("--max-size", `${args.maxSizeGb * 1073741824}`);
         }
         if (args.zoneRedundant !== undefined) {
           cmdArgs.push(

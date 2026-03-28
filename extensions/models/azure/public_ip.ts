@@ -37,7 +37,7 @@ const PublicIpSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-public-ip",
-  version: "2026.03.05.1",
+  version: "2026.03.27.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     publicIp: {
@@ -235,6 +235,7 @@ export const model = {
             args.name,
             "--resource-group",
             rg,
+            "--yes",
           ],
           g.subscriptionId,
         );

@@ -47,7 +47,7 @@ const NsgSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-nsg",
-  version: "2026.03.05.1",
+  version: "2026.03.27.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     nsg: {
@@ -530,6 +530,7 @@ export const model = {
             args.ruleName,
             "--resource-group",
             rg,
+            "--yes",
           ],
           g.subscriptionId,
         );
