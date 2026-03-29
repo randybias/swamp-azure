@@ -1,4 +1,4 @@
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.3.6";
 
 export const AzureGlobalArgsSchema = z.object({
   subscriptionId: z.string().describe(

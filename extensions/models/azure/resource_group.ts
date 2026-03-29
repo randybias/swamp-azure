@@ -1,4 +1,4 @@
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.3.6";
 import { az, AzureGlobalArgsSchema, sanitizeInstanceName } from "./_helpers.ts";
 
 const ResourceGroupSchema = z
