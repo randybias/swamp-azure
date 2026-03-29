@@ -41,6 +41,17 @@ const ArmTemplateSchema = z
   })
   .passthrough();
 
+const InventoryItemSchema = z
+  .object({
+    resourceType: z.string(),
+    name: z.string(),
+    resourceGroup: z.string(),
+    location: z.string().optional(),
+    azureId: z.string().optional(),
+    raw: z.record(z.string(), z.unknown()),
+  })
+  .passthrough();
+
 function extractName(resourceId: string): string {
   const parts = resourceId.split("/");
   return parts[parts.length - 1] || resourceId;
@@ -52,7 +63,7 @@ function escapeLabel(s: string): string {
 
 export const model = {
   type: "@dougschaefer/azure-topology",
-  version: "2026.03.05.1",
+  version: "2026.03.29.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     topology: {
@@ -73,8 +84,182 @@ export const model = {
       lifetime: "infinite",
       garbageCollection: 5,
     },
+    inventoryItem: {
+      description:
+        "Individual Azure resource discovered during subscription inventory",
+      schema: InventoryItemSchema,
+      lifetime: "infinite",
+      garbageCollection: 10,
+    },
   },
   methods: {
+    inventory: {
+      description:
+        "Discover all resources across the subscription (or a single resource group). Produces per-resource data handles for VMs, disks, VNets, NSGs, firewalls, public IPs, NAT gateways, route tables, load balancers, application gateways, Bastion, Key Vaults, storage accounts, private endpoints, managed identities, and SQL servers.",
+      arguments: z.object({
+        resourceGroup: z
+          .string()
+          .optional()
+          .describe(
+            "Resource group name. Omit to scan the entire subscription.",
+          ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = args.resourceGroup || g.resourceGroup;
+
+        const rgArgs = rg ? ["--resource-group", rg] : [];
+
+        const typeMap: Array<{
+          short: string;
+          azureType: string;
+          cmd: string[];
+        }> = [
+          {
+            short: "vm",
+            azureType: "Microsoft.Compute/virtualMachines",
+            cmd: ["vm", "list", "--show-details", ...rgArgs],
+          },
+          {
+            short: "vnet",
+            azureType: "Microsoft.Network/virtualNetworks",
+            cmd: ["network", "vnet", "list", ...rgArgs],
+          },
+          {
+            short: "nsg",
+            azureType: "Microsoft.Network/networkSecurityGroups",
+            cmd: ["network", "nsg", "list", ...rgArgs],
+          },
+          {
+            short: "fw",
+            azureType: "Microsoft.Network/azureFirewalls",
+            cmd: ["network", "firewall", "list", ...rgArgs],
+          },
+          {
+            short: "pip",
+            azureType: "Microsoft.Network/publicIPAddresses",
+            cmd: ["network", "public-ip", "list", ...rgArgs],
+          },
+          {
+            short: "nat",
+            azureType: "Microsoft.Network/natGateways",
+            cmd: ["network", "nat", "gateway", "list", ...rgArgs],
+          },
+          {
+            short: "rt",
+            azureType: "Microsoft.Network/routeTables",
+            cmd: ["network", "route-table", "list", ...rgArgs],
+          },
+          {
+            short: "kv",
+            azureType: "Microsoft.KeyVault/vaults",
+            cmd: ["keyvault", "list", ...rgArgs],
+          },
+          {
+            short: "sa",
+            azureType: "Microsoft.Storage/storageAccounts",
+            cmd: ["storage", "account", "list", ...rgArgs],
+          },
+          {
+            short: "sql",
+            azureType: "Microsoft.Sql/servers",
+            cmd: ["sql", "server", "list", ...rgArgs],
+          },
+          {
+            short: "disk",
+            azureType: "Microsoft.Compute/disks",
+            cmd: ["disk", "list", ...rgArgs],
+          },
+          {
+            short: "lb",
+            azureType: "Microsoft.Network/loadBalancers",
+            cmd: ["network", "lb", "list", ...rgArgs],
+          },
+          {
+            short: "appgw",
+            azureType: "Microsoft.Network/applicationGateways",
+            cmd: ["network", "application-gateway", "list", ...rgArgs],
+          },
+          {
+            short: "bastion",
+            azureType: "Microsoft.Network/bastionHosts",
+            cmd: ["network", "bastion", "list"],
+          },
+          {
+            short: "pe",
+            azureType: "Microsoft.Network/privateEndpoints",
+            cmd: ["network", "private-endpoint", "list", ...rgArgs],
+          },
+          {
+            short: "identity",
+            azureType: "Microsoft.ManagedIdentity/userAssignedIdentities",
+            cmd: ["identity", "list", ...rgArgs],
+          },
+        ];
+
+        const results = await Promise.all(
+          typeMap.map((t) =>
+            az(t.cmd, g.subscriptionId)
+              .then((r) => ({
+                ...t,
+                items: (r || []) as Array<Record<string, unknown>>,
+              }))
+              .catch((err) => {
+                context.logger.warning(
+                  "Failed to list {type}: {error}",
+                  { type: t.short, error: String(err) },
+                );
+                return { ...t, items: [] as Array<Record<string, unknown>> };
+              })
+          ),
+        );
+
+        const handles = [];
+        const counts: Record<string, number> = {};
+
+        for (const result of results) {
+          counts[result.short] = result.items.length;
+          for (const item of result.items) {
+            const name = item.name as string;
+            const itemRg = (item.resourceGroup as string) ||
+              rg ||
+              "unknown";
+            const instanceName = `${result.short}--${name}`;
+
+            const handle = await context.writeResource(
+              "inventoryItem",
+              sanitizeInstanceName(instanceName),
+              {
+                resourceType: result.azureType,
+                name,
+                resourceGroup: itemRg,
+                location: (item.location as string) || undefined,
+                azureId: (item.id as string) || undefined,
+                raw: item,
+              },
+            );
+            handles.push(handle);
+          }
+        }
+
+        const total = handles.length;
+        const scope = rg || "subscription";
+        context.logger.info(
+          "Inventory complete for {scope}: {total} resources ({counts})",
+          {
+            scope,
+            total,
+            counts: Object.entries(counts)
+              .filter(([_, v]) => v > 0)
+              .map(([k, v]) => `${v} ${k}`)
+              .join(", "),
+          },
+        );
+
+        return { dataHandles: handles };
+      },
+    },
+
     generate: {
       description:
         "Generate a Mermaid topology diagram for all resources in a resource group. Queries Azure directly for current state.",

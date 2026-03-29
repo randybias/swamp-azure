@@ -6,37 +6,28 @@ import {
   sanitizeInstanceName,
 } from "./_helpers.ts";
 
-const NatGatewaySchema = z
+const ManagedIdentitySchema = z
   .object({
     id: z.string(),
     name: z.string(),
     location: z.string(),
     resourceGroup: z.string(),
-    sku: z.object({ name: z.string() }).optional(),
-    idleTimeoutInMinutes: z.number().optional(),
-    publicIpAddresses: z
-      .array(z.object({ id: z.string() }).passthrough())
-      .optional(),
-    publicIpPrefixes: z
-      .array(z.object({ id: z.string() }).passthrough())
-      .optional(),
-    subnets: z
-      .array(z.object({ id: z.string() }).passthrough())
-      .optional(),
-    zones: z.array(z.string()).optional(),
+    clientId: z.string().optional(),
+    principalId: z.string().optional(),
+    tenantId: z.string().optional(),
+    type: z.string().optional(),
     tags: z.record(z.string(), z.string()).optional(),
-    provisioningState: z.string().optional(),
   })
   .passthrough();
 
 export const model = {
-  type: "@dougschaefer/azure-nat-gateway",
+  type: "@dougschaefer/azure-managed-identity",
   version: "2026.03.29.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
-    natGateway: {
-      description: "Azure NAT gateway",
-      schema: NatGatewaySchema,
+    identity: {
+      description: "Azure user-assigned managed identity",
+      schema: ManagedIdentitySchema,
       lifetime: "infinite",
       garbageCollection: 10,
     },
@@ -44,7 +35,7 @@ export const model = {
   methods: {
     list: {
       description:
-        "List all NAT gateways in a resource group (or all in the subscription).",
+        "List all user-assigned managed identities in a resource group (or subscription).",
       arguments: z.object({
         resourceGroup: z
           .string()
@@ -53,26 +44,24 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        const cmdArgs = ["network", "nat", "gateway", "list"];
+        const cmdArgs = ["identity", "list"];
         const rg = args.resourceGroup || g.resourceGroup;
-        if (rg) {
-          cmdArgs.push("--resource-group", rg);
-        }
+        if (rg) cmdArgs.push("--resource-group", rg);
 
-        const gateways = (await az(cmdArgs, g.subscriptionId)) as Array<
+        const identities = (await az(cmdArgs, g.subscriptionId)) as Array<
           Record<string, unknown>
         >;
 
-        context.logger.info("Found {count} NAT gateways", {
-          count: gateways.length,
+        context.logger.info("Found {count} managed identities", {
+          count: identities.length,
         });
 
         const handles = [];
-        for (const gw of gateways) {
+        for (const id of identities) {
           const handle = await context.writeResource(
-            "natGateway",
-            sanitizeInstanceName(gw.name as string),
-            gw,
+            "identity",
+            sanitizeInstanceName(id.name as string),
+            id,
           );
           handles.push(handle);
         }
@@ -81,19 +70,17 @@ export const model = {
     },
 
     get: {
-      description: "Get a single NAT gateway.",
+      description: "Get a single user-assigned managed identity.",
       arguments: z.object({
-        name: z.string().describe("NAT gateway name"),
+        name: z.string().describe("Identity name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
-        const gw = await az(
+        const id = await az(
           [
-            "network",
-            "nat",
-            "gateway",
+            "identity",
             "show",
             "--name",
             args.name,
@@ -103,9 +90,9 @@ export const model = {
           g.subscriptionId,
         );
         const handle = await context.writeResource(
-          "natGateway",
+          "identity",
           sanitizeInstanceName(args.name),
-          gw,
+          id,
         );
         return { dataHandles: [handle] };
       },
@@ -113,19 +100,17 @@ export const model = {
 
     sync: {
       description:
-        "Refresh the stored state of a NAT gateway without making changes.",
+        "Refresh the stored state of a managed identity without making changes.",
       arguments: z.object({
-        name: z.string().describe("NAT gateway name"),
+        name: z.string().describe("Identity name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
-        const gw = await az(
+        const id = await az(
           [
-            "network",
-            "nat",
-            "gateway",
+            "identity",
             "show",
             "--name",
             args.name,
@@ -135,11 +120,11 @@ export const model = {
           g.subscriptionId,
         );
         const handle = await context.writeResource(
-          "natGateway",
+          "identity",
           sanitizeInstanceName(args.name),
-          gw,
+          id,
         );
-        context.logger.info("Synced NAT gateway {name}", {
+        context.logger.info("Synced managed identity {name}", {
           name: args.name,
         });
         return { dataHandles: [handle] };
@@ -147,23 +132,11 @@ export const model = {
     },
 
     create: {
-      description: "Create a NAT gateway.",
+      description: "Create a user-assigned managed identity.",
       arguments: z.object({
-        name: z.string().describe("NAT gateway name"),
+        name: z.string().describe("Identity name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
-        location: z.string().describe("Azure region, e.g. eastus2"),
-        publicIpAddresses: z
-          .array(z.string())
-          .optional()
-          .describe("Public IP resource names or IDs to associate"),
-        idleTimeout: z
-          .number()
-          .optional()
-          .describe("Idle timeout in minutes (default 4, max 120)"),
-        zone: z
-          .array(z.string())
-          .optional()
-          .describe("Availability zones, e.g. ['1', '2', '3']"),
+        location: z.string().describe("Azure region"),
         tags: z
           .record(z.string(), z.string())
           .optional()
@@ -173,9 +146,7 @@ export const model = {
         const g = context.globalArgs;
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
         const cmdArgs = [
-          "network",
-          "nat",
-          "gateway",
+          "identity",
           "create",
           "--name",
           args.name,
@@ -185,15 +156,6 @@ export const model = {
           args.location,
         ];
 
-        if (args.publicIpAddresses) {
-          cmdArgs.push("--public-ip-addresses", ...args.publicIpAddresses);
-        }
-        if (args.idleTimeout) {
-          cmdArgs.push("--idle-timeout", args.idleTimeout.toString());
-        }
-        if (args.zone) {
-          cmdArgs.push("--zone", ...args.zone);
-        }
         if (args.tags) {
           const tagPairs = Object.entries(args.tags).map(
             ([k, v]) => `${k}=${v}`,
@@ -201,39 +163,25 @@ export const model = {
           cmdArgs.push("--tags", ...tagPairs);
         }
 
-        await az(cmdArgs, g.subscriptionId);
+        const id = await az(cmdArgs, g.subscriptionId);
 
-        context.logger.info("Created NAT gateway {name} in {location}", {
+        context.logger.info("Created managed identity {name}", {
           name: args.name,
-          location: args.location,
         });
 
-        const gw = await az(
-          [
-            "network",
-            "nat",
-            "gateway",
-            "show",
-            "--name",
-            args.name,
-            "--resource-group",
-            rg,
-          ],
-          g.subscriptionId,
-        );
         const handle = await context.writeResource(
-          "natGateway",
+          "identity",
           sanitizeInstanceName(args.name),
-          gw,
+          id,
         );
         return { dataHandles: [handle] };
       },
     },
 
     delete: {
-      description: "Delete a NAT gateway.",
+      description: "Delete a user-assigned managed identity.",
       arguments: z.object({
-        name: z.string().describe("NAT gateway name"),
+        name: z.string().describe("Identity name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
@@ -241,20 +189,16 @@ export const model = {
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
         await az(
           [
-            "network",
-            "nat",
-            "gateway",
+            "identity",
             "delete",
             "--name",
             args.name,
             "--resource-group",
             rg,
-            "--yes",
           ],
           g.subscriptionId,
         );
-
-        context.logger.info("Deleted NAT gateway {name}", {
+        context.logger.info("Deleted managed identity {name}", {
           name: args.name,
         });
         return { dataHandles: [] };

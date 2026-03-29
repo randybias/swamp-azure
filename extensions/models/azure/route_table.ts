@@ -34,7 +34,7 @@ const RouteTableSchema = z
 
 export const model = {
   type: "@dougschaefer/azure-route-table",
-  version: "2026.03.27.1",
+  version: "2026.03.29.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     routeTable: {
@@ -115,6 +115,40 @@ export const model = {
           sanitizeInstanceName(args.name),
           table,
         );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    sync: {
+      description:
+        "Refresh the stored state of a route table without making changes.",
+      arguments: z.object({
+        name: z.string().describe("Route table name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const table = await az(
+          [
+            "network",
+            "route-table",
+            "show",
+            "--name",
+            args.name,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const handle = await context.writeResource(
+          "routeTable",
+          sanitizeInstanceName(args.name),
+          table,
+        );
+        context.logger.info("Synced route table {name}", {
+          name: args.name,
+        });
         return { dataHandles: [handle] };
       },
     },

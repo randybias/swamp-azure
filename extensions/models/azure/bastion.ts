@@ -6,79 +6,60 @@ import {
   sanitizeInstanceName,
 } from "./_helpers.ts";
 
-const KeyVaultSchema = z
+const BastionSchema = z
   .object({
     id: z.string(),
     name: z.string(),
     location: z.string(),
     resourceGroup: z.string(),
-    properties: z
-      .object({
-        enableSoftDelete: z.boolean().optional(),
-        enablePurgeProtection: z.boolean().optional().nullable(),
-        enableRbacAuthorization: z.boolean().optional(),
-        enabledForDeployment: z.boolean().optional(),
-        enabledForDiskEncryption: z.boolean().optional(),
-        enabledForTemplateDeployment: z.boolean().optional(),
-        softDeleteRetentionInDays: z.number().optional(),
-        tenantId: z.string().optional(),
-        sku: z
-          .object({ family: z.string(), name: z.string() })
-          .passthrough()
-          .optional(),
-        vaultUri: z.string().optional(),
-        networkAcls: z.record(z.string(), z.unknown()).optional(),
-      })
-      .passthrough()
+    sku: z.object({ name: z.string() }).passthrough().optional(),
+    dnsName: z.string().optional(),
+    ipConfigurations: z
+      .array(z.record(z.string(), z.unknown()))
       .optional(),
+    enableTunneling: z.boolean().optional(),
+    enableShareableLink: z.boolean().optional(),
+    enableIpConnect: z.boolean().optional(),
+    enableFileCopy: z.boolean().optional(),
+    scaleUnits: z.number().optional(),
+    provisioningState: z.string().optional(),
     tags: z.record(z.string(), z.string()).optional(),
   })
   .passthrough();
 
 export const model = {
-  type: "@dougschaefer/azure-key-vault",
+  type: "@dougschaefer/azure-bastion",
   version: "2026.03.29.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
-    keyVault: {
-      description: "Azure Key Vault",
-      schema: KeyVaultSchema,
+    bastion: {
+      description: "Azure Bastion host for secure VM access",
+      schema: BastionSchema,
       lifetime: "infinite",
       garbageCollection: 10,
     },
   },
   methods: {
     list: {
-      description:
-        "List all Key Vaults in a resource group (or all in the subscription).",
-      arguments: z.object({
-        resourceGroup: z
-          .string()
-          .optional()
-          .describe("Resource group name. Omit to list across subscription."),
-      }),
-      execute: async (args, context) => {
+      description: "List all Bastion hosts in the subscription.",
+      arguments: z.object({}),
+      execute: async (_args, context) => {
         const g = context.globalArgs;
-        const cmdArgs = ["keyvault", "list"];
-        const rg = args.resourceGroup || g.resourceGroup;
-        if (rg) {
-          cmdArgs.push("--resource-group", rg);
-        }
+        const bastions = (await az(
+          ["network", "bastion", "list"],
+          g.subscriptionId,
+        )) as Array<Record<string, unknown>>;
 
-        const vaults = (await az(cmdArgs, g.subscriptionId)) as Array<
-          Record<string, unknown>
-        >;
-
-        context.logger.info("Found {count} Key Vaults", {
-          count: vaults.length,
+        context.logger.info("Found {count} Bastion hosts", {
+          count: bastions.length,
         });
 
         const handles = [];
-        for (const vault of vaults) {
+        for (const b of bastions) {
           const handle = await context.writeResource(
-            "keyVault",
-            sanitizeInstanceName(vault.name as string),
-            vault,
+            "bastion",
+            sanitizeInstanceName(b.name as string),
+            b,
           );
           handles.push(handle);
         }
@@ -87,17 +68,18 @@ export const model = {
     },
 
     get: {
-      description: "Get a single Key Vault.",
+      description: "Get a single Bastion host.",
       arguments: z.object({
-        name: z.string().describe("Key Vault name"),
+        name: z.string().describe("Bastion host name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
-        const vault = await az(
+        const b = await az(
           [
-            "keyvault",
+            "network",
+            "bastion",
             "show",
             "--name",
             args.name,
@@ -107,9 +89,9 @@ export const model = {
           g.subscriptionId,
         );
         const handle = await context.writeResource(
-          "keyVault",
+          "bastion",
           sanitizeInstanceName(args.name),
-          vault,
+          b,
         );
         return { dataHandles: [handle] };
       },
@@ -117,17 +99,18 @@ export const model = {
 
     sync: {
       description:
-        "Refresh the stored state of a Key Vault without making changes.",
+        "Refresh the stored state of a Bastion host without making changes.",
       arguments: z.object({
-        name: z.string().describe("Key Vault name"),
+        name: z.string().describe("Bastion host name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
-        const vault = await az(
+        const b = await az(
           [
-            "keyvault",
+            "network",
+            "bastion",
             "show",
             "--name",
             args.name,
@@ -137,11 +120,11 @@ export const model = {
           g.subscriptionId,
         );
         const handle = await context.writeResource(
-          "keyVault",
+          "bastion",
           sanitizeInstanceName(args.name),
-          vault,
+          b,
         );
-        context.logger.info("Synced Key Vault {name}", {
+        context.logger.info("Synced Bastion host {name}", {
           name: args.name,
         });
         return { dataHandles: [handle] };
@@ -149,35 +132,30 @@ export const model = {
     },
 
     create: {
-      description: "Create a Key Vault.",
+      description:
+        "Create a Bastion host. Requires a VNet with an AzureBastionSubnet.",
       arguments: z.object({
-        name: z
-          .string()
-          .describe("Key Vault name (3-24 chars, globally unique)"),
+        name: z.string().describe("Bastion host name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
-        location: z.string().describe("Azure region, e.g. eastus2"),
+        location: z.string().describe("Azure region"),
+        vnetName: z
+          .string()
+          .describe("VNet name (must have AzureBastionSubnet)"),
+        publicIpAddress: z
+          .string()
+          .describe("Public IP name or ID for the Bastion"),
         sku: z
-          .enum(["standard", "premium"])
-          .default("standard")
-          .describe("SKU: standard or premium (premium supports HSM keys)"),
-        enableRbac: z
+          .enum(["Basic", "Standard"])
+          .default("Basic")
+          .describe("Bastion SKU"),
+        enableTunneling: z
           .boolean()
           .optional()
-          .describe(
-            "Enable RBAC authorization (recommended over access policies)",
-          ),
-        enableSoftDelete: z
-          .boolean()
-          .optional()
-          .describe("Enable soft delete (default: true, cannot be disabled)"),
-        enablePurgeProtection: z
-          .boolean()
-          .optional()
-          .describe("Enable purge protection (irreversible once enabled)"),
-        retentionDays: z
+          .describe("Enable native client tunneling (Standard SKU only)"),
+        scaleUnits: z
           .number()
           .optional()
-          .describe("Soft delete retention days (7-90, default 90)"),
+          .describe("Scale units (2-50, Standard SKU only)"),
         tags: z
           .record(z.string(), z.string())
           .optional()
@@ -187,7 +165,8 @@ export const model = {
         const g = context.globalArgs;
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
         const cmdArgs = [
-          "keyvault",
+          "network",
+          "bastion",
           "create",
           "--name",
           args.name,
@@ -195,21 +174,19 @@ export const model = {
           rg,
           "--location",
           args.location,
+          "--vnet-name",
+          args.vnetName,
+          "--public-ip-address",
+          args.publicIpAddress,
           "--sku",
           args.sku,
         ];
 
-        if (args.enableRbac !== undefined) {
-          cmdArgs.push(
-            "--enable-rbac-authorization",
-            args.enableRbac.toString(),
-          );
+        if (args.enableTunneling) {
+          cmdArgs.push("--enable-tunneling", "true");
         }
-        if (args.enablePurgeProtection) {
-          cmdArgs.push("--enable-purge-protection", "true");
-        }
-        if (args.retentionDays) {
-          cmdArgs.push("--retention-days", args.retentionDays.toString());
+        if (args.scaleUnits) {
+          cmdArgs.push("--scale-units", args.scaleUnits.toString());
         }
         if (args.tags) {
           const tagPairs = Object.entries(args.tags).map(
@@ -220,14 +197,15 @@ export const model = {
 
         await az(cmdArgs, g.subscriptionId);
 
-        context.logger.info("Created Key Vault {name} in {location}", {
+        context.logger.info("Created Bastion host {name} ({sku})", {
           name: args.name,
-          location: args.location,
+          sku: args.sku,
         });
 
-        const vault = await az(
+        const b = await az(
           [
-            "keyvault",
+            "network",
+            "bastion",
             "show",
             "--name",
             args.name,
@@ -237,19 +215,18 @@ export const model = {
           g.subscriptionId,
         );
         const handle = await context.writeResource(
-          "keyVault",
+          "bastion",
           sanitizeInstanceName(args.name),
-          vault,
+          b,
         );
         return { dataHandles: [handle] };
       },
     },
 
     delete: {
-      description:
-        "Delete a Key Vault. If soft delete is enabled, the vault enters a deleted state and can be recovered.",
+      description: "Delete a Bastion host.",
       arguments: z.object({
-        name: z.string().describe("Key Vault name"),
+        name: z.string().describe("Bastion host name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
@@ -257,7 +234,8 @@ export const model = {
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
         await az(
           [
-            "keyvault",
+            "network",
+            "bastion",
             "delete",
             "--name",
             args.name,
@@ -267,8 +245,9 @@ export const model = {
           ],
           g.subscriptionId,
         );
-
-        context.logger.info("Deleted Key Vault {name}", { name: args.name });
+        context.logger.info("Deleted Bastion host {name}", {
+          name: args.name,
+        });
         return { dataHandles: [] };
       },
     },

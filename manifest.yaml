@@ -1,8 +1,10 @@
 manifestVersion: 1
 name: "@dougschaefer/azure"
-version: "2026.03.29.1"
-description: "Azure infrastructure management via az CLI — VMs, VNets, NSGs, firewalls, route tables, NAT gateways, public IPs, Key Vault, SQL, storage accounts, vWAN, DNS zones, Azure DevOps, and topology visualization. Includes sync methods and readiness polling."
+version: "2026.03.29.4"
+description: "Azure infrastructure management via az CLI — 23 model types covering compute, networking, data, security, identity, monitoring, DNS, DevOps, and subscription-wide topology with Mermaid diagrams and cost estimation."
 repository: https://github.com/dougschaefer6/swamp-azure
+additionalFiles:
+  - README.md
 labels:
   - azure
   - cloud
@@ -12,10 +14,20 @@ labels:
   - dns
   - devops
 models:
+  - azure/application_gateway.ts
+  - azure/bastion.ts
+  - azure/devops.ts
+  - azure/disk.ts
+  - azure/dns.ts
   - azure/firewall.ts
   - azure/key_vault.ts
+  - azure/load_balancer.ts
+  - azure/managed_identity.ts
+  - azure/monitor.ts
   - azure/nat_gateway.ts
+  - azure/network_watcher.ts
   - azure/nsg.ts
+  - azure/private_endpoint.ts
   - azure/public_ip.ts
   - azure/resource_group.ts
   - azure/route_table.ts
@@ -25,5 +37,3 @@ models:
   - azure/vm.ts
   - azure/vnet.ts
   - azure/vwan.ts
-  - azure/dns.ts
-  - azure/devops.ts

@@ -340,8 +340,8 @@ export const model = {
         zoneName: z.string().describe("DNS zone name"),
         name: z.string().describe("Record set name (e.g. 'www', '@' for apex)"),
         recordType: z
-          .string()
-          .describe("Record type: A, AAAA, CNAME, MX, TXT, NS, SRV, PTR, SOA"),
+          .enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "PTR", "SOA"])
+          .describe("Record type"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
@@ -382,8 +382,8 @@ export const model = {
         zoneName: z.string().describe("DNS zone name"),
         name: z.string().describe("Record set name (e.g. 'www', '@' for apex)"),
         recordType: z
-          .string()
-          .describe("Record type: A, AAAA, CNAME, MX, TXT, NS, SRV, PTR"),
+          .enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "PTR"])
+          .describe("Record type"),
         value: z
           .string()
           .describe(
@@ -501,8 +501,8 @@ export const model = {
         zoneName: z.string().describe("DNS zone name"),
         name: z.string().describe("Record set name"),
         recordType: z
-          .string()
-          .describe("Record type: A, AAAA, CNAME, MX, TXT, NS, SRV, PTR"),
+          .enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "PTR"])
+          .describe("Record type"),
         value: z
           .string()
           .describe("Record value to remove"),
@@ -603,8 +603,8 @@ export const model = {
         zoneName: z.string().describe("DNS zone name"),
         name: z.string().describe("Record set name"),
         recordType: z
-          .string()
-          .describe("Record type: A, AAAA, CNAME, MX, TXT, NS, SRV, PTR, SOA"),
+          .enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "PTR", "SOA"])
+          .describe("Record type"),
         resourceGroup: z.string().optional().describe("Resource group name"),
       }),
       execute: async (args, context) => {
