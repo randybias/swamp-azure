@@ -262,15 +262,509 @@ export const model = {
 
     generate: {
       description:
-        "Generate a Mermaid topology diagram for all resources in a resource group. Queries Azure directly for current state.",
+        "Generate a Mermaid topology diagram. When resourceGroup is provided, diagrams a single RG. When omitted, produces a subscription-wide hub-and-spoke diagram across all resource groups with LR layout, traffic flow arrows, and Azure-branded colors.",
       arguments: z.object({
-        resourceGroup: z.string().optional().describe("Resource group name"),
+        resourceGroup: z
+          .string()
+          .optional()
+          .describe(
+            "Resource group name. Omit for a subscription-wide topology.",
+          ),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const rg = args.resourceGroup || g.resourceGroup;
 
-        // Fetch all resource types in parallel
+        // --- Class definitions shared by both modes ---
+        const classDefs = [
+          "classDef vnet fill:#0078D4,color:#fff,stroke:#005A9E,stroke-width:2px",
+          "classDef subnet fill:#50E6FF,color:#000,stroke:#0078D4",
+          "classDef vm fill:#7FBA00,color:#fff,stroke:#5E8B00,stroke-width:2px",
+          "classDef nsg fill:#FF8C00,color:#fff,stroke:#CC7000",
+          "classDef firewall fill:#E81123,color:#fff,stroke:#B80E1C,stroke-width:2px",
+          "classDef pip fill:#B4A0FF,color:#000,stroke:#7B6DB0",
+          "classDef nat fill:#00BCF2,color:#000,stroke:#0099CC",
+          "classDef rt fill:#FFB900,color:#000,stroke:#CC9400",
+          "classDef vwan fill:#773ADC,color:#fff,stroke:#5B2D99,stroke-width:2px",
+          "classDef vpn fill:#0063B1,color:#fff,stroke:#004E8C",
+          "classDef storage fill:#744DA9,color:#fff,stroke:#5C3D87",
+          "classDef image fill:#107C10,color:#fff,stroke:#0B5E0B",
+          "classDef internet fill:#333,color:#fff,stroke:#000,stroke-width:2px",
+          "classDef spacer fill:none,stroke:none,color:transparent",
+        ];
+
+        // --- Helper to build subnet map and NSG/RT associations for a set of VNets ---
+        function buildSubnetMaps(vnets: Array<Record<string, unknown>>) {
+          const subnetToNode = new Map<string, string>();
+          const nsgSubnets = new Map<string, string[]>();
+          const rtSubnets = new Map<string, string[]>();
+
+          for (const vnet of vnets) {
+            const vnetName = vnet.name as string;
+            const subnets = (vnet.subnets || []) as Array<
+              Record<string, unknown>
+            >;
+            for (const subnet of subnets) {
+              const subnetName = subnet.name as string;
+              const nodeId = `subnet_${sanitizeInstanceName(vnetName)}_${
+                sanitizeInstanceName(subnetName)
+              }`;
+              if (subnet.id) {
+                subnetToNode.set(
+                  (subnet.id as string).toLowerCase(),
+                  nodeId,
+                );
+              }
+              const nsgRef = subnet.networkSecurityGroup as
+                | { id: string }
+                | null
+                | undefined;
+              if (nsgRef?.id) {
+                const name = extractName(nsgRef.id);
+                if (!nsgSubnets.has(name)) nsgSubnets.set(name, []);
+                nsgSubnets.get(name)!.push(nodeId);
+              }
+              const rtRef = subnet.routeTable as
+                | { id: string }
+                | null
+                | undefined;
+              if (rtRef?.id) {
+                const name = extractName(rtRef.id);
+                if (!rtSubnets.has(name)) rtSubnets.set(name, []);
+                rtSubnets.get(name)!.push(nodeId);
+              }
+            }
+          }
+          return { subnetToNode, nsgSubnets, rtSubnets };
+        }
+
+        // --- Helper to emit a VNet subgraph with subnets ---
+        function emitVnet(
+          vnet: Record<string, unknown>,
+          indent: string,
+        ): string[] {
+          const out: string[] = [];
+          const vnetName = vnet.name as string;
+          const vnetId = `vnet_${sanitizeInstanceName(vnetName)}`;
+          const addressSpace = vnet.addressSpace as
+            | { addressPrefixes: string[] }
+            | undefined;
+          const prefixes = addressSpace?.addressPrefixes?.join(", ") || "";
+
+          out.push(
+            `${indent}subgraph ${vnetId}["${escapeLabel(vnetName)} ${
+              escapeLabel(prefixes)
+            }"]`,
+          );
+          out.push(`${indent}  direction TB`);
+
+          const subnets = (vnet.subnets || []) as Array<
+            Record<string, unknown>
+          >;
+          for (const subnet of subnets) {
+            const subnetName = subnet.name as string;
+            const nodeId = `subnet_${sanitizeInstanceName(vnetName)}_${
+              sanitizeInstanceName(subnetName)
+            }`;
+            const prefix = (subnet.addressPrefix as string) ||
+              ((subnet.addressPrefixes as string[]) || [])[0] || "";
+            out.push(
+              `${indent}  ${nodeId}["${escapeLabel(subnetName)}\\n${
+                escapeLabel(prefix)
+              }"]:::subnet`,
+            );
+          }
+
+          out.push(`${indent}end`);
+          out.push(`${indent}class ${vnetId} vnet`);
+          return out;
+        }
+
+        // ================================================================
+        // SUBSCRIPTION-WIDE MODE (no resourceGroup specified)
+        // Produces an LR hub-and-spoke diagram across all resource groups.
+        // ================================================================
+        if (!rg) {
+          // Fetch all resource groups, then resources per group in parallel
+          const allRgs = (await az(
+            ["group", "list"],
+            g.subscriptionId,
+          )) as Array<Record<string, unknown>>;
+
+          // Collect resources across all RGs in parallel
+          const fetchForRg = async (rgName: string) => {
+            const rgArgs = ["--resource-group", rgName];
+            const [vnets, nsgs, vms, firewalls, storageAccts, vpnSites, vwans] =
+              await Promise.all([
+                az(["network", "vnet", "list", ...rgArgs], g.subscriptionId)
+                  .catch(() => []) as Promise<Array<Record<string, unknown>>>,
+                az(["network", "nsg", "list", ...rgArgs], g.subscriptionId)
+                  .catch(() => []) as Promise<Array<Record<string, unknown>>>,
+                az(
+                  ["vm", "list", ...rgArgs, "--show-details"],
+                  g.subscriptionId,
+                ).catch(() => []) as Promise<Array<Record<string, unknown>>>,
+                az(
+                  ["network", "firewall", "list", ...rgArgs],
+                  g.subscriptionId,
+                ).catch(() => []) as Promise<Array<Record<string, unknown>>>,
+                az(
+                  ["storage", "account", "list", ...rgArgs],
+                  g.subscriptionId,
+                ).catch(() => []) as Promise<Array<Record<string, unknown>>>,
+                az(
+                  ["network", "vpn-site", "list", ...rgArgs],
+                  g.subscriptionId,
+                ).catch(() => []) as Promise<Array<Record<string, unknown>>>,
+                az(
+                  ["network", "vwan", "list", ...rgArgs],
+                  g.subscriptionId,
+                ).catch(() => []) as Promise<Array<Record<string, unknown>>>,
+              ]);
+            return {
+              rgName,
+              vnets,
+              nsgs,
+              vms,
+              firewalls,
+              storageAccts,
+              vpnSites,
+              vwans,
+            };
+          };
+
+          const rgData = await Promise.all(
+            allRgs.map((r) => fetchForRg(r.name as string)),
+          );
+
+          // Separate hub RG (contains vWAN/firewall) from spoke RGs (contain VNets with VMs)
+          const hubRgs = rgData.filter(
+            (r) => r.firewalls.length > 0 || r.vwans.length > 0,
+          );
+          const spokeRgs = rgData.filter(
+            (r) =>
+              r.vnets.length > 0 &&
+              r.firewalls.length === 0 &&
+              r.vwans.length === 0,
+          );
+          const imageRgs = rgData.filter(
+            (r) =>
+              r.storageAccts.length > 0 &&
+              r.vnets.length === 0 &&
+              r.vms.length === 0 &&
+              r.firewalls.length === 0,
+          );
+
+          const lines: string[] = [];
+          lines.push(
+            `%%{init: {'flowchart': {'nodeSpacing': 50, 'rankSpacing': 80, 'subGraphTitleMargin': {'top': 15, 'bottom': 15}, 'padding': 20}}}%%`,
+          );
+          lines.push("graph LR");
+          for (const c of classDefs) lines.push(`  ${c}`);
+          lines.push("");
+
+          // External zone (VPN sites + internet)
+          const allVpnSites = rgData.flatMap((r) => r.vpnSites);
+          if (allVpnSites.length > 0) {
+            lines.push(`  subgraph external["On-Premises / External"]`);
+            lines.push(`    direction TB`);
+            for (const site of allVpnSites) {
+              const siteName = site.name as string;
+              const siteId = `vpn_${sanitizeInstanceName(siteName)}`;
+              const addrPrefixes =
+                ((site.addressSpace as { addressPrefixes?: string[] })
+                  ?.addressPrefixes || []).join(", ");
+              const label = addrPrefixes
+                ? `${escapeLabel(siteName)}\\n${escapeLabel(addrPrefixes)}`
+                : escapeLabel(siteName);
+              lines.push(`    ${siteId}["${label}"]:::vpn`);
+            }
+            lines.push(`    internet_node["Internet"]:::internet`);
+            lines.push(`  end`);
+            lines.push("");
+          }
+
+          // Subscription container
+          const shortSub = g.subscriptionId.substring(0, 8);
+          lines.push(`  subgraph sub["Subscription ${shortSub}"]`);
+          lines.push("");
+
+          // Hub resource group(s)
+          for (const hub of hubRgs) {
+            lines.push(
+              `    subgraph rg_${sanitizeInstanceName(hub.rgName)}["RG: ${
+                escapeLabel(hub.rgName)
+              }"]`,
+            );
+            lines.push(`      direction TB`);
+
+            for (const vwan of hub.vwans) {
+              const vwanName = vwan.name as string;
+              lines.push(
+                `      vwan_${sanitizeInstanceName(vwanName)}["${
+                  escapeLabel(vwanName)
+                }"]:::vwan`,
+              );
+            }
+
+            // VPN gateway (inferred from vWAN hub presence)
+            if (hub.vwans.length > 0) {
+              lines.push(
+                `      vpn_gw["VPN Gateway\\nS2S IPsec"]:::vpn`,
+              );
+            }
+
+            for (const fw of hub.firewalls) {
+              const fwName = fw.name as string;
+              const tier = (fw.sku as { tier: string } | undefined)?.tier ||
+                "Standard";
+              const policyName = fw.firewallPolicy
+                ? extractName(
+                  (fw.firewallPolicy as { id: string }).id,
+                )
+                : "";
+              const policyLabel = policyName
+                ? `\\n${escapeLabel(policyName)}`
+                : "";
+              lines.push(
+                `      fw_${sanitizeInstanceName(fwName)}["Azure Firewall\\n${
+                  escapeLabel(tier)
+                }${policyLabel}"]:::firewall`,
+              );
+            }
+
+            for (const sa of hub.storageAccts) {
+              const saName = sa.name as string;
+              lines.push(
+                `      sa_${sanitizeInstanceName(saName)}["${
+                  escapeLabel(saName)
+                }"]:::storage`,
+              );
+            }
+
+            lines.push(`    end`);
+            lines.push("");
+
+            // Internal hub connections
+            if (hub.vwans.length > 0 && hub.firewalls.length > 0) {
+              const vwanId = `vwan_${
+                sanitizeInstanceName(hub.vwans[0].name as string)
+              }`;
+              const fwId = `fw_${
+                sanitizeInstanceName(hub.firewalls[0].name as string)
+              }`;
+              lines.push(`    ${vwanId} --- vpn_gw`);
+              lines.push(`    ${vwanId} --- ${fwId}`);
+            }
+          }
+
+          // Spoke resource groups
+          for (const spoke of spokeRgs) {
+            const rgId = `rg_${sanitizeInstanceName(spoke.rgName)}`;
+            lines.push(
+              `    subgraph ${rgId}["RG: ${escapeLabel(spoke.rgName)}"]`,
+            );
+            lines.push(`      direction TB`);
+            // Spacer to push content below RG title
+            lines.push(`      ${rgId}_spacer[ ]:::spacer`);
+
+            const { subnetToNode, nsgSubnets } = buildSubnetMaps(spoke.vnets);
+
+            for (const vnet of spoke.vnets) {
+              const vnetLines = emitVnet(vnet, "      ");
+              lines.push(...vnetLines);
+            }
+
+            for (const vm of spoke.vms) {
+              const vmName = vm.name as string;
+              const vmId = `vm_${sanitizeInstanceName(vmName)}`;
+              const vmSize =
+                (vm.hardwareProfile as { vmSize: string } | undefined)
+                  ?.vmSize || "";
+              const osType = (
+                vm.storageProfile as {
+                  osDisk?: { osType?: string };
+                } | undefined
+              )?.osDisk?.osType || "";
+              const privateIp = (vm.privateIps as string) || "";
+              const tags = (vm.tags || {}) as Record<string, string>;
+              const version = tags["pexip-version"] || "";
+              const versionLabel = version ? `\\n${escapeLabel(version)}` : "";
+
+              lines.push(
+                `      ${vmId}["${escapeLabel(vmName)}\\n${
+                  escapeLabel(vmSize.replace("Standard_", ""))
+                } - ${escapeLabel(osType)}${versionLabel}\\n${
+                  escapeLabel(privateIp)
+                }"]:::vm`,
+              );
+            }
+
+            for (const nsg of spoke.nsgs) {
+              const nsgName = nsg.name as string;
+              const nsgId = `nsg_${sanitizeInstanceName(nsgName)}`;
+              const ruleCount = (
+                (nsg.securityRules as Array<unknown>) || []
+              ).length;
+              lines.push(
+                `      ${nsgId}["${
+                  escapeLabel(nsgName)
+                }\\n${ruleCount} rules"]:::nsg`,
+              );
+            }
+
+            lines.push(`    end`);
+            lines.push("");
+
+            // Subnet-to-VM connections
+            for (const vm of spoke.vms) {
+              const vmName = vm.name as string;
+              const vmId = `vm_${sanitizeInstanceName(vmName)}`;
+              const nics = (
+                vm.networkProfile as {
+                  networkInterfaces?: Array<{ id: string }>;
+                } | undefined
+              )?.networkInterfaces || [];
+              for (const nic of nics) {
+                // Resolve NIC subnet
+                const nicId = nic.id.toLowerCase();
+                for (const [subId, nodeId] of subnetToNode) {
+                  if (
+                    nicId.includes(
+                      subId.split("/subnets/")[0]?.split("/virtualnetworks/")[1]
+                        ?.toLowerCase() || "___",
+                    )
+                  ) {
+                    lines.push(`    ${nodeId} --> ${vmId}`);
+                    break;
+                  }
+                }
+                // Fallback: connect to first subnet
+                if (subnetToNode.size > 0) {
+                  const firstSubnet = [...subnetToNode.values()][0];
+                  if (
+                    !lines.some((l) => l.includes(`--> ${vmId}`))
+                  ) {
+                    lines.push(`    ${firstSubnet} --> ${vmId}`);
+                  }
+                }
+              }
+            }
+
+            // NSG associations
+            for (const nsg of spoke.nsgs) {
+              const nsgName = nsg.name as string;
+              const nsgId = `nsg_${sanitizeInstanceName(nsgName)}`;
+              const associated = nsgSubnets.get(nsgName) || [];
+              for (const subnetNodeId of associated) {
+                lines.push(
+                  `    ${nsgId} -.->|"applied"| ${subnetNodeId}`,
+                );
+              }
+            }
+          }
+
+          // Image/storage-only resource groups
+          for (const imgRg of imageRgs) {
+            const rgId = `rg_${sanitizeInstanceName(imgRg.rgName)}`;
+            lines.push(
+              `    subgraph ${rgId}["RG: ${escapeLabel(imgRg.rgName)}"]`,
+            );
+            lines.push(`      direction TB`);
+            lines.push(`      ${rgId}_spacer[ ]:::spacer`);
+            for (const sa of imgRg.storageAccts) {
+              const saName = sa.name as string;
+              lines.push(
+                `      sa_${sanitizeInstanceName(saName)}["${
+                  escapeLabel(saName)
+                }"]:::storage`,
+              );
+            }
+            lines.push(`    end`);
+            lines.push("");
+          }
+
+          lines.push(`  end`); // close subscription
+          lines.push("");
+
+          // Force spoke RGs side-by-side with invisible links
+          if (spokeRgs.length > 1) {
+            const spokeIds = spokeRgs.map(
+              (s) => `rg_${sanitizeInstanceName(s.rgName)}`,
+            );
+            lines.push(`  ${spokeIds.join(" ~~~ ")}`);
+            lines.push("");
+          }
+
+          // VPN ingress arrows
+          for (const site of allVpnSites) {
+            const siteId = `vpn_${sanitizeInstanceName(site.name as string)}`;
+            lines.push(`  ${siteId} -->|"S2S IPsec"| vpn_gw`);
+          }
+
+          // Internet egress through firewall
+          if (hubRgs.length > 0 && hubRgs[0].firewalls.length > 0) {
+            const fwId = `fw_${
+              sanitizeInstanceName(hubRgs[0].firewalls[0].name as string)
+            }`;
+            if (allVpnSites.length > 0) {
+              lines.push(`  ${fwId} -->|"outbound NAT"| internet_node`);
+            }
+
+            // Hub connections to spoke VNets
+            for (const spoke of spokeRgs) {
+              for (const vnet of spoke.vnets) {
+                const vnetId = `vnet_${
+                  sanitizeInstanceName(vnet.name as string)
+                }`;
+                lines.push(
+                  `  ${fwId} ==>|"hub connection"| ${vnetId}`,
+                );
+              }
+            }
+          }
+
+          const mermaid = lines.join("\n");
+          const totalVms = rgData.reduce((s, r) => s + r.vms.length, 0);
+          const totalVnets = rgData.reduce(
+            (s, r) => s + r.vnets.length,
+            0,
+          );
+
+          context.logger.info(
+            "Generated subscription-wide topology: {rgs} RGs, {vnets} VNets, {vms} VMs",
+            { rgs: allRgs.length, vnets: totalVnets, vms: totalVms },
+          );
+
+          const data = {
+            resourceGroup: "subscription",
+            generatedAt: new Date().toISOString(),
+            mermaid,
+            resourceCounts: {
+              resourceGroups: allRgs.length,
+              vnets: totalVnets,
+              vms: totalVms,
+              firewalls: rgData.reduce(
+                (s, r) => s + r.firewalls.length,
+                0,
+              ),
+              nsgs: rgData.reduce((s, r) => s + r.nsgs.length, 0),
+              vpnSites: allVpnSites.length,
+            },
+          };
+
+          const handle = await context.writeResource(
+            "topology",
+            "subscription-wide",
+            data,
+          );
+          return { dataHandles: [handle] };
+        }
+
+        // ================================================================
+        // SINGLE RESOURCE GROUP MODE (original behavior, same style)
+        // ================================================================
+
         const [
           vnets,
           nsgs,
@@ -311,93 +805,23 @@ export const model = {
         ]);
 
         const lines: string[] = [];
-        lines.push("graph TB");
-        lines.push(`  classDef vnet fill:#0078D4,color:#fff,stroke:#005A9E`);
-        lines.push(`  classDef subnet fill:#50E6FF,color:#000,stroke:#0078D4`);
-        lines.push(`  classDef vm fill:#7FBA00,color:#fff,stroke:#5E8B00`);
-        lines.push(`  classDef nsg fill:#FF8C00,color:#fff,stroke:#CC7000`);
         lines.push(
-          `  classDef firewall fill:#E81123,color:#fff,stroke:#B80E1C`,
+          `%%{init: {'flowchart': {'nodeSpacing': 50, 'rankSpacing': 80, 'subGraphTitleMargin': {'top': 15, 'bottom': 15}, 'padding': 20}}}%%`,
         );
-        lines.push(`  classDef pip fill:#B4A0FF,color:#000,stroke:#7B6DB0`);
-        lines.push(`  classDef nat fill:#00BCF2,color:#000,stroke:#0099CC`);
-        lines.push(`  classDef rt fill:#FFB900,color:#000,stroke:#CC9400`);
+        lines.push("graph LR");
+        for (const c of classDefs) lines.push(`  ${c}`);
         lines.push("");
 
-        // Build a map of subnet IDs to their VNet for linking
-        const subnetToVnet = new Map<string, string>();
-        const nsgSubnets = new Map<string, string[]>();
-        const rtSubnets = new Map<string, string[]>();
+        const { subnetToNode, nsgSubnets, rtSubnets } = buildSubnetMaps(vnets);
 
         // VNets and subnets
         for (const vnet of vnets) {
-          const vnetName = vnet.name as string;
-          const vnetId = `vnet_${sanitizeInstanceName(vnetName)}`;
-          const addressSpace = vnet.addressSpace as
-            | { addressPrefixes: string[] }
-            | undefined;
-          const prefixes = addressSpace?.addressPrefixes?.join(", ") || "";
-
-          lines.push(
-            `  subgraph ${vnetId}["${escapeLabel(vnetName)}<br/>${
-              escapeLabel(prefixes)
-            }"]`,
-          );
-
-          const subnets = (vnet.subnets || []) as Array<
-            Record<string, unknown>
-          >;
-          for (const subnet of subnets) {
-            const subnetName = subnet.name as string;
-            const subnetNodeId = `subnet_${sanitizeInstanceName(vnetName)}_${
-              sanitizeInstanceName(subnetName)
-            }`;
-            const subnetPrefix = (subnet.addressPrefix as string) ||
-              ((subnet.addressPrefixes as string[]) || [])[0] ||
-              "";
-
-            lines.push(
-              `    ${subnetNodeId}["${escapeLabel(subnetName)}<br/>${
-                escapeLabel(subnetPrefix)
-              }"]:::subnet`,
-            );
-
-            if (subnet.id) {
-              subnetToVnet.set(
-                (subnet.id as string).toLowerCase(),
-                subnetNodeId,
-              );
-            }
-
-            // Track NSG associations
-            const nsgRef = subnet.networkSecurityGroup as
-              | { id: string }
-              | null
-              | undefined;
-            if (nsgRef?.id) {
-              const nsgName = extractName(nsgRef.id);
-              if (!nsgSubnets.has(nsgName)) nsgSubnets.set(nsgName, []);
-              nsgSubnets.get(nsgName)!.push(subnetNodeId);
-            }
-
-            // Track route table associations
-            const rtRef = subnet.routeTable as
-              | { id: string }
-              | null
-              | undefined;
-            if (rtRef?.id) {
-              const rtName = extractName(rtRef.id);
-              if (!rtSubnets.has(rtName)) rtSubnets.set(rtName, []);
-              rtSubnets.get(rtName)!.push(subnetNodeId);
-            }
-          }
-
-          lines.push("  end");
-          lines.push(`  class ${vnetId} vnet`);
+          const vnetLines = emitVnet(vnet, "  ");
+          lines.push(...vnetLines);
           lines.push("");
         }
 
-        // VMs — connect to their subnets
+        // VMs
         for (const vm of vms) {
           const vmName = vm.name as string;
           const vmId = `vm_${sanitizeInstanceName(vmName)}`;
@@ -405,105 +829,78 @@ export const model = {
             vm.hardwareProfile as { vmSize: string } | undefined
           )?.vmSize || "";
           const powerState = (vm.powerState as string) || "";
+          const privateIp = (vm.privateIps as string) || "";
 
           lines.push(
-            `  ${vmId}["💻 ${escapeLabel(vmName)}<br/>${
-              escapeLabel(vmSize)
-            }<br/>${escapeLabel(powerState)}"]:::vm`,
+            `  ${vmId}["${escapeLabel(vmName)}\\n${
+              escapeLabel(vmSize.replace("Standard_", ""))
+            }\\n${escapeLabel(powerState)}\\n${escapeLabel(privateIp)}"]:::vm`,
           );
 
-          // Link VM to subnet via NIC
-          const networkProfile = vm.networkProfile as
-            | {
-              networkInterfaces: Array<{ id: string }>;
-            }
-            | undefined;
-          const nics = networkProfile?.networkInterfaces || [];
-          for (const _nic of nics) {
-            // Try to find subnet from the NIC's IP config
-            const privateIps = (vm.privateIps as string) || "";
-            // Connect to first matching subnet by checking all subnets
-            for (const [_subnetId, subnetNodeId] of subnetToVnet) {
-              // Match VM's private IP against subnet — simplified: connect to first subnet in same VNet
-              if (privateIps) {
-                lines.push(`  ${subnetNodeId} --> ${vmId}`);
-                break;
-              }
-            }
+          const privateIps = (vm.privateIps as string) || "";
+          if (privateIps && subnetToNode.size > 0) {
+            const firstSubnet = [...subnetToNode.values()][0];
+            lines.push(`  ${firstSubnet} --> ${vmId}`);
           }
 
-          // Public IP association
           const publicIpAddr = (vm.publicIps as string) || "";
           if (publicIpAddr) {
             const pipId = `pip_vm_${sanitizeInstanceName(vmName)}`;
             lines.push(
-              `  ${pipId}["🌐 ${escapeLabel(publicIpAddr)}"]:::pip`,
+              `  ${pipId}["${escapeLabel(publicIpAddr)}"]:::pip`,
             );
             lines.push(`  ${pipId} --> ${vmId}`);
           }
         }
-
         lines.push("");
 
-        // NSGs — connect to associated subnets
+        // NSGs
         for (const nsg of nsgs) {
           const nsgName = nsg.name as string;
           const nsgId = `nsg_${sanitizeInstanceName(nsgName)}`;
           const ruleCount = (
             (nsg.securityRules as Array<unknown>) || []
           ).length;
-
           lines.push(
-            `  ${nsgId}["🛡️ ${
-              escapeLabel(nsgName)
-            }<br/>${ruleCount} rules"]:::nsg`,
+            `  ${nsgId}["${escapeLabel(nsgName)}\\n${ruleCount} rules"]:::nsg`,
           );
-
           const associated = nsgSubnets.get(nsgName) || [];
           for (const subnetNodeId of associated) {
-            lines.push(`  ${nsgId} -.-> ${subnetNodeId}`);
+            lines.push(`  ${nsgId} -.->|"applied"| ${subnetNodeId}`);
           }
         }
 
-        // Route tables — connect to associated subnets
+        // Route tables
         for (const rt of routeTables) {
           const rtName = rt.name as string;
           const rtId = `rt_${sanitizeInstanceName(rtName)}`;
           const routeCount = (
             (rt.routes as Array<unknown>) || []
           ).length;
-
           lines.push(
-            `  ${rtId}["🔀 ${
-              escapeLabel(rtName)
-            }<br/>${routeCount} routes"]:::rt`,
+            `  ${rtId}["${escapeLabel(rtName)}\\n${routeCount} routes"]:::rt`,
           );
-
           const associated = rtSubnets.get(rtName) || [];
           for (const subnetNodeId of associated) {
-            lines.push(`  ${rtId} -.-> ${subnetNodeId}`);
+            lines.push(`  ${rtId} -.->|"applied"| ${subnetNodeId}`);
           }
         }
 
-        // NAT gateways — connect to subnets
+        // NAT gateways
         for (const gw of natGateways) {
           const gwName = gw.name as string;
           const gwId = `nat_${sanitizeInstanceName(gwName)}`;
-
           lines.push(
-            `  ${gwId}["🔄 NAT: ${escapeLabel(gwName)}"]:::nat`,
+            `  ${gwId}["NAT: ${escapeLabel(gwName)}"]:::nat`,
           );
-
           const gwSubnets = (gw.subnets || []) as Array<{ id: string }>;
           for (const sub of gwSubnets) {
-            const subnetNodeId = subnetToVnet.get(sub.id.toLowerCase());
-            if (subnetNodeId) {
-              lines.push(`  ${subnetNodeId} --> ${gwId}`);
-            }
+            const subnetNodeId = subnetToNode.get(sub.id.toLowerCase());
+            if (subnetNodeId) lines.push(`  ${subnetNodeId} --> ${gwId}`);
           }
         }
 
-        // Standalone public IPs (not attached to VMs)
+        // Standalone public IPs
         for (const pip of publicIps) {
           const pipName = pip.name as string;
           const ipAddr = (pip.ipAddress as string) || "unassigned";
@@ -511,32 +908,25 @@ export const model = {
             | { id: string }
             | null
             | undefined;
-
-          // Skip if this public IP is already shown via a VM
           if (
             ipConfig?.id &&
-            (ipConfig.id.toLowerCase().includes("/networkinterfaces/"))
+            ipConfig.id.toLowerCase().includes("/networkinterfaces/")
           ) {
             continue;
           }
-
           const pipId = `pip_${sanitizeInstanceName(pipName)}`;
           lines.push(
-            `  ${pipId}["🌐 ${escapeLabel(pipName)}<br/>${
+            `  ${pipId}["${escapeLabel(pipName)}\\n${
               escapeLabel(ipAddr)
             }"]:::pip`,
           );
-
-          // If attached to a firewall or gateway, connect it
-          if (ipConfig?.id) {
-            if (ipConfig.id.toLowerCase().includes("/azurefirewalls/")) {
-              const fwName = extractName(
-                ipConfig.id.split("/azureFirewallIpConfigurations/")[0],
-              );
-              lines.push(
-                `  ${pipId} --> fw_${sanitizeInstanceName(fwName)}`,
-              );
-            }
+          if (ipConfig?.id?.toLowerCase().includes("/azurefirewalls/")) {
+            const fwName = extractName(
+              ipConfig.id.split("/azureFirewallIpConfigurations/")[0],
+            );
+            lines.push(
+              `  ${pipId} --> fw_${sanitizeInstanceName(fwName)}`,
+            );
           }
         }
 
@@ -545,14 +935,9 @@ export const model = {
           const fwName = fw.name as string;
           const fwId = `fw_${sanitizeInstanceName(fwName)}`;
           const tier = (fw.sku as { tier: string } | undefined)?.tier || "";
-
           lines.push(
-            `  ${fwId}["🔥 ${escapeLabel(fwName)}<br/>${
-              escapeLabel(tier)
-            }"]:::firewall`,
+            `  ${fwId}["Azure Firewall\\n${escapeLabel(tier)}"]:::firewall`,
           );
-
-          // Connect firewall to its subnet (AzureFirewallSubnet)
           const ipConfigs = (fw.ipConfigurations || []) as Array<
             Record<string, unknown>
           >;
@@ -562,7 +947,7 @@ export const model = {
               | null
               | undefined;
             if (subnetRef?.id) {
-              const subnetNodeId = subnetToVnet.get(
+              const subnetNodeId = subnetToNode.get(
                 subnetRef.id.toLowerCase(),
               );
               if (subnetNodeId) {
@@ -583,12 +968,10 @@ export const model = {
           natGateways: natGateways.length,
           firewalls: firewalls.length,
         };
-
-        const totalSubnets = vnets.reduce((sum, vnet) => {
-          return (
-            sum + ((vnet.subnets as Array<unknown>) || []).length
-          );
-        }, 0);
+        const totalSubnets = vnets.reduce(
+          (sum, vnet) => sum + ((vnet.subnets as Array<unknown>) || []).length,
+          0,
+        );
         resourceCounts.subnets = totalSubnets;
 
         context.logger.info(
