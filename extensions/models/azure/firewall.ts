@@ -58,7 +58,7 @@ const FirewallPolicySchema = z
 
 export const model = {
   type: "@dougschaefer/azure-firewall",
-  version: "2026.03.28.1",
+  version: "2026.04.02.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     firewall: {
@@ -482,6 +482,573 @@ export const model = {
           g.subscriptionId,
         );
         const instanceName = `${args.policyName}--${args.name}`;
+        const handle = await context.writeResource(
+          "ruleCollectionGroup",
+          sanitizeInstanceName(instanceName),
+          group,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    createRuleCollectionGroup: {
+      description: "Create a rule collection group in a firewall policy.",
+      arguments: z.object({
+        name: z.string().describe("Rule collection group name"),
+        policyName: z.string().describe("Firewall policy name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+        priority: z.number().describe(
+          "Priority (100-65000, lower = higher priority)",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "create",
+            "--name",
+            args.name,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+            "--priority",
+            String(args.priority),
+          ],
+          g.subscriptionId,
+        );
+
+        context.logger.info(
+          "Created rule collection group {name} in policy {policy} (priority {priority})",
+          { name: args.name, policy: args.policyName, priority: args.priority },
+        );
+
+        const group = await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "show",
+            "--name",
+            args.name,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const instanceName = `${args.policyName}--${args.name}`;
+        const handle = await context.writeResource(
+          "ruleCollectionGroup",
+          sanitizeInstanceName(instanceName),
+          group,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    deleteRuleCollectionGroup: {
+      description: "Delete a rule collection group from a firewall policy.",
+      arguments: z.object({
+        name: z.string().describe("Rule collection group name"),
+        policyName: z.string().describe("Firewall policy name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "delete",
+            "--name",
+            args.name,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+            "--yes",
+          ],
+          g.subscriptionId,
+        );
+
+        context.logger.info(
+          "Deleted rule collection group {name} from policy {policy}",
+          { name: args.name, policy: args.policyName },
+        );
+        return { dataHandles: [] };
+      },
+    },
+
+    addFilterCollection: {
+      description:
+        "Add a filter rule collection (network or application rules) to an existing rule collection group.",
+      arguments: z.object({
+        rcgName: z.string().describe("Rule collection group name"),
+        policyName: z.string().describe("Firewall policy name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+        collectionName: z.string().describe("New rule collection name"),
+        collectionPriority: z.number().describe(
+          "Collection priority (100-65000)",
+        ),
+        actionType: z.enum(["Allow", "Deny"]).describe("Filter action"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "collection",
+            "add-filter-collection",
+            "--rcg-name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+            "--name",
+            args.collectionName,
+            "--collection-priority",
+            String(args.collectionPriority),
+            "--action",
+            args.actionType,
+            "--rule-type",
+            "NetworkRule",
+            "--rule-name",
+            "placeholder",
+            "--source-addresses",
+            "*",
+            "--dest-addr",
+            "*",
+            "--destination-ports",
+            "1",
+            "--ip-protocols",
+            "Any",
+          ],
+          g.subscriptionId,
+        );
+
+        // Remove the placeholder rule
+        await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "collection",
+            "rule",
+            "remove",
+            "--rcg-name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+            "--collection-name",
+            args.collectionName,
+            "--name",
+            "placeholder",
+          ],
+          g.subscriptionId,
+        );
+
+        context.logger.info(
+          "Created filter collection {name} in {rcg} ({action}, priority {priority})",
+          {
+            name: args.collectionName,
+            rcg: args.rcgName,
+            action: args.actionType,
+            priority: args.collectionPriority,
+          },
+        );
+
+        const group = await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "show",
+            "--name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const instanceName = `${args.policyName}--${args.rcgName}`;
+        const handle = await context.writeResource(
+          "ruleCollectionGroup",
+          sanitizeInstanceName(instanceName),
+          group,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    addNatCollection: {
+      description:
+        "Add a NAT (DNAT) rule collection to an existing rule collection group.",
+      arguments: z.object({
+        rcgName: z.string().describe("Rule collection group name"),
+        policyName: z.string().describe("Firewall policy name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+        collectionName: z.string().describe("New NAT collection name"),
+        collectionPriority: z.number().describe(
+          "Collection priority (100-65000)",
+        ),
+        ruleName: z.string().describe("First DNAT rule name"),
+        sourceAddresses: z.array(z.string()).describe(
+          "Source IP(s) or * for any",
+        ),
+        destinationAddresses: z.array(z.string()).describe(
+          "Firewall public IP(s) to match",
+        ),
+        destinationPorts: z.array(z.string()).describe(
+          "External port(s) to match",
+        ),
+        translatedAddress: z.string().describe("Internal IP to forward to"),
+        translatedPort: z.string().describe("Internal port to forward to"),
+        ipProtocols: z.array(z.enum(["TCP", "UDP"])).default(["TCP"]).describe(
+          "Protocols",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "collection",
+            "add-nat-collection",
+            "--rcg-name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+            "--name",
+            args.collectionName,
+            "--collection-priority",
+            String(args.collectionPriority),
+            "--action",
+            "DNAT",
+            "--rule-name",
+            args.ruleName,
+            "--source-addresses",
+            ...args.sourceAddresses,
+            "--dest-addr",
+            ...args.destinationAddresses,
+            "--destination-ports",
+            ...args.destinationPorts,
+            "--translated-address",
+            args.translatedAddress,
+            "--translated-port",
+            args.translatedPort,
+            "--ip-protocols",
+            ...args.ipProtocols,
+          ],
+          g.subscriptionId,
+        );
+
+        context.logger.info(
+          "Created NAT collection {name} in {rcg} with DNAT rule {rule}",
+          { name: args.collectionName, rcg: args.rcgName, rule: args.ruleName },
+        );
+
+        const group = await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "show",
+            "--name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const instanceName = `${args.policyName}--${args.rcgName}`;
+        const handle = await context.writeResource(
+          "ruleCollectionGroup",
+          sanitizeInstanceName(instanceName),
+          group,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    addRule: {
+      description:
+        "Add a rule to an existing rule collection. Supports NatRule, NetworkRule, and ApplicationRule types.",
+      arguments: z.object({
+        rcgName: z.string().describe("Rule collection group name"),
+        policyName: z.string().describe("Firewall policy name"),
+        collectionName: z.string().describe("Existing rule collection name"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+        ruleType: z.enum(["NatRule", "NetworkRule", "ApplicationRule"])
+          .describe("Rule type"),
+        ruleName: z.string().describe("Rule name"),
+        sourceAddresses: z.array(z.string()).describe(
+          "Source IP(s), CIDR(s), or * for any",
+        ),
+        destinationAddresses: z.array(z.string()).optional().describe(
+          "Destination IP(s) or CIDR(s)",
+        ),
+        destinationPorts: z.array(z.string()).optional().describe(
+          "Destination port(s)",
+        ),
+        ipProtocols: z.array(z.string()).optional().describe(
+          "Protocols: TCP, UDP, Any, ICMP",
+        ),
+        translatedAddress: z.string().optional().describe(
+          "DNAT translated internal IP (NatRule only)",
+        ),
+        translatedPort: z.string().optional().describe(
+          "DNAT translated internal port (NatRule only)",
+        ),
+        targetFqdns: z.array(z.string()).optional().describe(
+          "Target FQDNs (ApplicationRule only)",
+        ),
+        protocols: z.array(z.string()).optional().describe(
+          "App protocols, e.g. Http=80 Https=443 (ApplicationRule only)",
+        ),
+        description: z.string().optional().describe("Rule description"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        const cmdArgs = [
+          "network",
+          "firewall",
+          "policy",
+          "rule-collection-group",
+          "collection",
+          "rule",
+          "add",
+          "--rcg-name",
+          args.rcgName,
+          "--policy-name",
+          args.policyName,
+          "--resource-group",
+          rg,
+          "--collection-name",
+          args.collectionName,
+          "--rule-type",
+          args.ruleType,
+          "--name",
+          args.ruleName,
+          "--source-addresses",
+          ...args.sourceAddresses,
+        ];
+
+        if (args.destinationAddresses) {
+          cmdArgs.push("--dest-addr", ...args.destinationAddresses);
+        }
+        if (args.destinationPorts) {
+          cmdArgs.push("--destination-ports", ...args.destinationPorts);
+        }
+        if (args.ipProtocols) {
+          cmdArgs.push("--ip-protocols", ...args.ipProtocols);
+        }
+        if (args.translatedAddress) {
+          cmdArgs.push("--translated-address", args.translatedAddress);
+        }
+        if (args.translatedPort) {
+          cmdArgs.push("--translated-port", args.translatedPort);
+        }
+        if (args.targetFqdns) {
+          cmdArgs.push("--target-fqdns", ...args.targetFqdns);
+        }
+        if (args.protocols) {
+          cmdArgs.push("--protocols", ...args.protocols);
+        }
+
+        await az(cmdArgs, g.subscriptionId);
+
+        context.logger.info(
+          "Added {ruleType} {ruleName} to collection {collection} in {rcg}",
+          {
+            ruleType: args.ruleType,
+            ruleName: args.ruleName,
+            collection: args.collectionName,
+            rcg: args.rcgName,
+          },
+        );
+
+        const group = await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "show",
+            "--name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const instanceName = `${args.policyName}--${args.rcgName}`;
+        const handle = await context.writeResource(
+          "ruleCollectionGroup",
+          sanitizeInstanceName(instanceName),
+          group,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    removeRule: {
+      description: "Remove a rule from a rule collection.",
+      arguments: z.object({
+        rcgName: z.string().describe("Rule collection group name"),
+        policyName: z.string().describe("Firewall policy name"),
+        collectionName: z.string().describe("Rule collection name"),
+        ruleName: z.string().describe("Rule name to remove"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "collection",
+            "rule",
+            "remove",
+            "--rcg-name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+            "--collection-name",
+            args.collectionName,
+            "--name",
+            args.ruleName,
+          ],
+          g.subscriptionId,
+        );
+
+        context.logger.info(
+          "Removed rule {ruleName} from collection {collection} in {rcg}",
+          {
+            ruleName: args.ruleName,
+            collection: args.collectionName,
+            rcg: args.rcgName,
+          },
+        );
+
+        const group = await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "show",
+            "--name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const instanceName = `${args.policyName}--${args.rcgName}`;
+        const handle = await context.writeResource(
+          "ruleCollectionGroup",
+          sanitizeInstanceName(instanceName),
+          group,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    removeCollection: {
+      description:
+        "Remove an entire rule collection from a rule collection group.",
+      arguments: z.object({
+        rcgName: z.string().describe("Rule collection group name"),
+        policyName: z.string().describe("Firewall policy name"),
+        collectionName: z.string().describe("Rule collection name to remove"),
+        resourceGroup: z.string().optional().describe("Resource group name"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
+        await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "collection",
+            "remove",
+            "--rcg-name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+            "--name",
+            args.collectionName,
+          ],
+          g.subscriptionId,
+        );
+
+        context.logger.info(
+          "Removed collection {collection} from {rcg}",
+          { collection: args.collectionName, rcg: args.rcgName },
+        );
+
+        const group = await az(
+          [
+            "network",
+            "firewall",
+            "policy",
+            "rule-collection-group",
+            "show",
+            "--name",
+            args.rcgName,
+            "--policy-name",
+            args.policyName,
+            "--resource-group",
+            rg,
+          ],
+          g.subscriptionId,
+        );
+        const instanceName = `${args.policyName}--${args.rcgName}`;
         const handle = await context.writeResource(
           "ruleCollectionGroup",
           sanitizeInstanceName(instanceName),
