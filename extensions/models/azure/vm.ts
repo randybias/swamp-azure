@@ -205,12 +205,14 @@ export const model = {
         adminPassword: z
           .string()
           .optional()
+          .meta({ sensitive: true })
           .describe(
             "Admin password (Windows or password-based Linux). Use: ${{ vault.get('azure', 'VM_ADMIN_PASSWORD') }}",
           ),
         sshKeyValue: z
           .string()
           .optional()
+          .meta({ sensitive: true })
           .describe(
             "SSH public key for Linux VMs. Use: ${{ vault.get('azure', 'SSH_PUBLIC_KEY') }}",
           ),
