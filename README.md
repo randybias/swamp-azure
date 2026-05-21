@@ -24,6 +24,7 @@ Most models include a `sync` method that refreshes stored state without making c
 | `azure-private-endpoint` | Private endpoints with private DNS zone enumeration |
 | `azure-key-vault` | Key Vault lifecycle |
 | `azure-sql` | SQL logical servers and databases |
+| `azure-ssh-key` | SSH public key resources (Microsoft.Compute/sshPublicKeys) with full lifecycle |
 | `azure-storage-account` | Storage accounts (Blob, File, Table, Queue) |
 | `azure-managed-identity` | User-assigned managed identities |
 | `azure-monitor` | Metric alerts, activity log alerts, action groups, and diagnostic settings |
@@ -214,6 +215,18 @@ Most models include a `sync` method that refreshes stored state without making c
 | `syncDatabase` | Refresh stored state of a database |
 | `createDatabase` | Create a database with SKU and max size |
 | `deleteDatabase` | Delete a database |
+
+### azure-ssh-key
+
+SSH public key resources (`Microsoft.Compute/sshPublicKeys`) wrapped via `az sshkey`. Used by VM provisioning to reference a centrally-managed key by ID.
+
+| Method | Description |
+|---|---|
+| `list` | List all SSH public keys in a resource group or subscription |
+| `get` | Get a single SSH public key by name |
+| `sync` | Refresh stored state without making changes |
+| `create` | Create a new SSH public key resource with supplied public-key content |
+| `delete` | Delete an SSH public key resource |
 
 ### azure-storage-account
 
