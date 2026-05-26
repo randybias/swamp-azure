@@ -1,11 +1,19 @@
 manifestVersion: 1
-name: '@dougschaefer/azure'
-version: 2026.05.21.1
-description: >-
-  Azure infrastructure management via az CLI — 24 model types covering compute,
-  networking, data, security, identity, monitoring, DNS, DevOps, and
-  subscription-wide topology with Mermaid diagrams and cost estimation.
-repository: 'https://github.com/dougschaefer6/swamp-azure'
+name: "@dougschaefer/azure"
+version: "2026.05.26.1"
+description: "Azure infrastructure management via az CLI — 24 model types covering compute, networking, data, security, identity, monitoring, DNS, DevOps, and subscription-wide topology with Mermaid diagrams and cost estimation."
+repository: https://github.com/dougschaefer6/swamp-azure
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+labels:
+  - azure
+  - cloud
+  - networking
+  - vm
+  - firewall
+  - dns
+  - devops
 models:
   - azure/application_gateway.ts
   - azure/bastion.ts
@@ -31,20 +39,3 @@ models:
   - azure/vm.ts
   - azure/vnet.ts
   - azure/vwan.ts
-workflows: []
-vaults: []
-drivers: []
-datastores: []
-reports: []
-additionalFiles:
-  - README.md
-  - LICENSE.txt
-labels:
-  - azure
-  - cloud
-  - networking
-  - vm
-  - firewall
-  - dns
-  - devops
-dependencies: []

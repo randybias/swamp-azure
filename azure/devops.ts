@@ -103,7 +103,7 @@ const WorkItemSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-devops",
-  version: "2026.03.28.1",
+  version: "2026.05.26.1",
   globalArguments: DevOpsGlobalArgsSchema,
   resources: {
     project: {
