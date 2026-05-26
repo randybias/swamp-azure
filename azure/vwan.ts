@@ -145,7 +145,7 @@ const VpnGatewaySchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-vwan",
-  version: "2026.05.26.1",
+  version: "2026.05.26.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vwan: {

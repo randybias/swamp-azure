@@ -86,6 +86,53 @@ const WorkItemSchema = z
   })
   .passthrough();
 
+const ServiceConnectionSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    type: z.string().optional(),
+    url: z.string().nullish(),
+    isReady: z.boolean().optional(),
+    owner: z.string().nullish(),
+    createdBy: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+
+const VariableGroupSchema = z
+  .object({
+    id: z.number(),
+    name: z.string(),
+    type: z.string().optional(),
+    description: z.string().nullish(),
+    isShared: z.boolean().optional(),
+    variables: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+
+const PullRequestSchema = z
+  .object({
+    pullRequestId: z.number(),
+    title: z.string().optional(),
+    status: z.string().optional(),
+    isDraft: z.boolean().optional(),
+    sourceRefName: z.string().optional(),
+    targetRefName: z.string().optional(),
+    creationDate: z.string().optional(),
+    createdBy: z.record(z.string(), z.unknown()).optional(),
+    repository: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+
+const AgentPoolSchema = z
+  .object({
+    id: z.number(),
+    name: z.string(),
+    poolType: z.string().optional(),
+    isHosted: z.boolean().optional(),
+    size: z.number().optional(),
+  })
+  .passthrough();
+
 /**
  * `@dougschaefer/azure-devops` model — Azure DevOps Services
  * automation, wrapping the `az devops` and `az pipelines` /
@@ -97,13 +144,20 @@ const WorkItemSchema = z
  * getBuild) cover YAML and classic build/release definitions and the
  * builds they produce. Work-item methods (listWorkItems, getWorkItem,
  * createWorkItem, updateWorkItem) drive Boards items via WIQL and
- * direct field updates. Used by ASEI workflows that bootstrap repos,
- * trigger publish pipelines (such as `publish-catalog`), and create
- * tracking tickets — mutations touch production project state.
+ * direct field updates. Service-connection methods
+ * (listServiceConnections, getServiceConnection) read the
+ * service-endpoint inventory; variable-group methods
+ * (listVariableGroups, getVariableGroup) read pipeline variable
+ * groups; pull-request methods (listPullRequests, getPullRequest)
+ * read PRs across a project or one repository; listAgentPools reads
+ * the organization-level agent pools. Used by ASEI workflows that
+ * bootstrap repos, trigger publish pipelines (such as
+ * `publish-catalog`), and create tracking tickets — mutations touch
+ * production project state.
  */
 export const model = {
   type: "@dougschaefer/azure-devops",
-  version: "2026.05.26.1",
+  version: "2026.05.26.2",
   globalArguments: DevOpsGlobalArgsSchema,
   resources: {
     project: {
@@ -133,6 +187,30 @@ export const model = {
     workItem: {
       description: "Azure DevOps work item",
       schema: WorkItemSchema,
+      lifetime: "infinite",
+      garbageCollection: 10,
+    },
+    serviceConnection: {
+      description: "Azure DevOps service connection (service endpoint)",
+      schema: ServiceConnectionSchema,
+      lifetime: "infinite",
+      garbageCollection: 10,
+    },
+    variableGroup: {
+      description: "Azure DevOps pipeline variable group",
+      schema: VariableGroupSchema,
+      lifetime: "infinite",
+      garbageCollection: 10,
+    },
+    pullRequest: {
+      description: "Azure DevOps pull request",
+      schema: PullRequestSchema,
+      lifetime: "infinite",
+      garbageCollection: 10,
+    },
+    agentPool: {
+      description: "Azure DevOps organization agent pool",
+      schema: AgentPoolSchema,
       lifetime: "infinite",
       garbageCollection: 10,
     },
@@ -610,6 +688,261 @@ export const model = {
           wi,
         );
         return { dataHandles: [handle] };
+      },
+    },
+
+    listServiceConnections: {
+      description: "List service connections (service endpoints) in a project.",
+      arguments: z.object({
+        project: z.string().optional().describe(
+          "Project name (overrides global)",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const conns = (await az(
+          devopsArgs(["devops", "service-endpoint", "list"], g, args.project),
+          undefined,
+        )) as Array<Record<string, unknown>>;
+
+        context.logger.info("Found {count} service connections", {
+          count: conns.length,
+        });
+
+        const handles = [];
+        for (const c of conns) {
+          const handle = await context.writeResource(
+            "serviceConnection",
+            sanitizeInstanceName(c.name as string),
+            c,
+          );
+          handles.push(handle);
+        }
+        return { dataHandles: handles };
+      },
+    },
+
+    getServiceConnection: {
+      description: "Get a single service connection by id.",
+      arguments: z.object({
+        id: z.string().describe("Service endpoint id"),
+        project: z.string().optional().describe(
+          "Project name (overrides global)",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const conn = (await az(
+          devopsArgs(
+            ["devops", "service-endpoint", "show", "--id", args.id],
+            g,
+            args.project,
+          ),
+          undefined,
+        )) as Record<string, unknown>;
+        const handle = await context.writeResource(
+          "serviceConnection",
+          sanitizeInstanceName((conn.name as string) ?? args.id),
+          conn,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    listVariableGroups: {
+      description: "List pipeline variable groups in a project.",
+      arguments: z.object({
+        groupName: z
+          .string()
+          .optional()
+          .describe("Filter by name (wildcards allowed, e.g. prod*)"),
+        top: z.number().optional().describe("Maximum number to return"),
+        project: z.string().optional().describe(
+          "Project name (overrides global)",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const baseArgs = ["pipelines", "variable-group", "list"];
+        if (args.groupName) baseArgs.push("--group-name", args.groupName);
+        if (args.top !== undefined) baseArgs.push("--top", String(args.top));
+
+        const groups = (await az(
+          devopsArgs(baseArgs, g, args.project),
+          undefined,
+        )) as Array<Record<string, unknown>>;
+
+        context.logger.info("Found {count} variable groups", {
+          count: groups.length,
+        });
+
+        const handles = [];
+        for (const vg of groups) {
+          const handle = await context.writeResource(
+            "variableGroup",
+            sanitizeInstanceName(String(vg.id)),
+            vg,
+          );
+          handles.push(handle);
+        }
+        return { dataHandles: handles };
+      },
+    },
+
+    getVariableGroup: {
+      description: "Get a single variable group by id.",
+      arguments: z.object({
+        id: z.number().describe("Variable group id"),
+        project: z.string().optional().describe(
+          "Project name (overrides global)",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const vg = (await az(
+          devopsArgs(
+            [
+              "pipelines",
+              "variable-group",
+              "show",
+              "--group-id",
+              String(
+                args.id,
+              ),
+            ],
+            g,
+            args.project,
+          ),
+          undefined,
+        )) as Record<string, unknown>;
+        const handle = await context.writeResource(
+          "variableGroup",
+          sanitizeInstanceName(String(args.id)),
+          vg,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    listPullRequests: {
+      description:
+        "List pull requests across a project or a single repository.",
+      arguments: z.object({
+        repository: z.string().optional().describe("Repository name or id"),
+        status: z
+          .enum(["active", "completed", "abandoned", "all"])
+          .optional()
+          .describe("Filter by pull request status"),
+        sourceBranch: z.string().optional().describe("Source branch filter"),
+        targetBranch: z.string().optional().describe("Target branch filter"),
+        creator: z
+          .string()
+          .optional()
+          .describe("Limit to PRs created by this user"),
+        project: z.string().optional().describe(
+          "Project name (overrides global)",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const baseArgs = ["repos", "pr", "list"];
+        if (args.repository) baseArgs.push("--repository", args.repository);
+        if (args.status) baseArgs.push("--status", args.status);
+        if (args.sourceBranch) {
+          baseArgs.push("--source-branch", args.sourceBranch);
+        }
+        if (args.targetBranch) {
+          baseArgs.push("--target-branch", args.targetBranch);
+        }
+        if (args.creator) baseArgs.push("--creator", args.creator);
+
+        const prs = (await az(
+          devopsArgs(baseArgs, g, args.project),
+          undefined,
+        )) as Array<Record<string, unknown>>;
+
+        context.logger.info("Found {count} pull requests", {
+          count: prs.length,
+        });
+
+        const handles = [];
+        for (const pr of prs) {
+          const handle = await context.writeResource(
+            "pullRequest",
+            sanitizeInstanceName(String(pr.pullRequestId)),
+            pr,
+          );
+          handles.push(handle);
+        }
+        return { dataHandles: handles };
+      },
+    },
+
+    getPullRequest: {
+      description: "Get a single pull request by id.",
+      arguments: z.object({
+        id: z.number().describe("Pull request id"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const pr = (await az(
+          [
+            "repos",
+            "pr",
+            "show",
+            "--id",
+            String(args.id),
+            "--org",
+            g
+              .organization,
+          ],
+          undefined,
+        )) as Record<string, unknown>;
+        const handle = await context.writeResource(
+          "pullRequest",
+          sanitizeInstanceName(String(args.id)),
+          pr,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    listAgentPools: {
+      description:
+        "List the organization's agent pools (org-level, not project-scoped).",
+      arguments: z.object({
+        poolName: z.string().optional().describe(
+          "Filter by matching pool name",
+        ),
+        poolType: z
+          .enum(["automation", "deployment"])
+          .optional()
+          .describe("Filter by pool type"),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const cmdArgs = ["pipelines", "pool", "list", "--org", g.organization];
+        if (args.poolName) cmdArgs.push("--pool-name", args.poolName);
+        if (args.poolType) cmdArgs.push("--pool-type", args.poolType);
+
+        const pools = (await az(cmdArgs, undefined)) as Array<
+          Record<string, unknown>
+        >;
+
+        context.logger.info("Found {count} agent pools", {
+          count: pools.length,
+        });
+
+        const handles = [];
+        for (const p of pools) {
+          const handle = await context.writeResource(
+            "agentPool",
+            sanitizeInstanceName(String(p.id)),
+            p,
+          );
+          handles.push(handle);
+        }
+        return { dataHandles: handles };
       },
     },
   },

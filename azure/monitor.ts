@@ -81,7 +81,7 @@ const ActionGroupSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-monitor",
-  version: "2026.05.26.1",
+  version: "2026.05.26.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     metricAlert: {

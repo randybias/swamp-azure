@@ -1,6 +1,8 @@
 # @dougschaefer/azure
 
-Azure infrastructure management for [Swamp](https://swamp.club), covering 23 model types across compute, networking, data services, security, identity, monitoring, DNS, DevOps, and subscription-wide topology visualization. Every method runs through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription.
+Azure infrastructure management for [Swamp](https://swamp.club), covering 31 model types across compute, networking, data services, security, RBAC, Azure Policy, Defender for Cloud, Entra ID directory, monitoring, DNS, DevOps, and subscription-wide topology visualization. Every method runs through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription.
+
+Container Apps, Container Apps Jobs, and Azure Container Registry are covered by the companion extension [`@rkcoleman/azure-containers`](https://github.com/rkcoleman/swamp-azure-containers), which is designed to compose with these models.
 
 The extension goes beyond standard CRUD. The topology model performs subscription-wide inventory across 16 resource types, generates Azure-branded Mermaid diagrams of resource group network architecture, estimates monthly costs against the public Azure Retail Pricing API, and exports ARM templates for IaC documentation. The DNS model handles zone and record lifecycle with enum-validated record types. The DevOps model covers projects, repos, pipelines, builds, and work items so you can wire CI/CD operations into the same workflows that manage the infrastructure those pipelines deploy to.
 
@@ -27,10 +29,17 @@ Most models include a `sync` method that refreshes stored state without making c
 | `azure-ssh-key` | SSH public key resources (Microsoft.Compute/sshPublicKeys) with full lifecycle |
 | `azure-storage-account` | Storage accounts (Blob, File, Table, Queue) |
 | `azure-managed-identity` | User-assigned managed identities |
+| `azure-ad-user` | Entra ID users — directory reads and group memberships |
+| `azure-ad-group` | Entra ID groups — lifecycle and membership management |
+| `azure-ad-service-principal` | Entra ID service principals — reads and credential-expiry auditing |
+| `azure-ad-app-registration` | Entra ID app registrations — reads and credential-expiry auditing |
+| `azure-role-assignment` | Azure RBAC role assignments and definitions |
+| `azure-policy` | Azure Policy assignments, definitions, initiatives, and compliance state |
+| `azure-defender` | Microsoft Defender for Cloud pricing, secure score, assessments, and alerts |
 | `azure-monitor` | Metric alerts, activity log alerts, action groups, and diagnostic settings |
 | `azure-network-watcher` | Network Watcher instances, flow logs, connection monitors, and connectivity checks |
 | `azure-dns` | DNS zones and records with full record type support |
-| `azure-devops` | Projects, repos, pipelines, builds, and work items |
+| `azure-devops` | Projects, repos, pipelines, builds, work items, service connections, variable groups, pull requests, and agent pools |
 | `azure-vwan` | Virtual WANs, hubs, hub connections, VPN sites, and VPN gateways |
 | `azure-resource-group` | Resource group lifecycle |
 | `azure-topology` | Subscription-wide inventory, Mermaid diagrams, cost estimation, and ARM template export |
@@ -248,6 +257,96 @@ SSH public key resources (`Microsoft.Compute/sshPublicKeys`) wrapped via `az ssh
 | `create` | Create a user-assigned managed identity |
 | `delete` | Delete a managed identity |
 
+### azure-ad-user
+
+Tenant-scoped (Entra ID) — authenticates via the active `az login` session, no subscription. Read-only by design; directory account provisioning is intentionally out of scope.
+
+| Method | Description |
+|---|---|
+| `list` | List users, optionally narrowed by an OData `$filter` |
+| `get` | Get a user by UPN or object id |
+| `sync` | Refresh stored state without making changes |
+| `getMemberGroups` | List the groups a user belongs to (access review) |
+
+### azure-ad-group
+
+Tenant-scoped (Entra ID). Membership writes (`addMember`/`removeMember`) and group lifecycle (`create`/`delete`) touch live directory state — adding a member can grant access through group-based RBAC.
+
+| Method | Description |
+|---|---|
+| `list` | List groups, optionally narrowed by an OData `$filter` |
+| `get` | Get a group by object id or display name |
+| `sync` | Refresh stored state without making changes |
+| `listMembers` | List the member principals of a group |
+| `addMember` | Add a user, group, or service principal to a group |
+| `removeMember` | Remove a principal from a group |
+| `create` | Create a new group |
+| `delete` | Delete a group |
+
+### azure-ad-service-principal
+
+Tenant-scoped (Entra ID). Read-only — `create-for-rbac` is excluded because it emits secret material. `listCredentials` surfaces credential `endDateTime` for expiry auditing; secret values are never returned by Graph.
+
+| Method | Description |
+|---|---|
+| `list` | List service principals (require one of all/displayName/filter/spn) |
+| `get` | Get a service principal by appId or object id |
+| `sync` | Refresh stored state without making changes |
+| `listCredentials` | List password/certificate credential metadata for expiry auditing |
+| `listOwners` | List the owners of a service principal |
+
+### azure-ad-app-registration
+
+Tenant-scoped (Entra ID). Read-only. `listCredentials` is the primary tool for catching expiring app secrets before they break an integration; secret values are never returned by Graph.
+
+| Method | Description |
+|---|---|
+| `list` | List app registrations, optionally narrowed by displayName or `$filter` |
+| `get` | Get an app registration by appId or object id |
+| `sync` | Refresh stored state without making changes |
+| `listCredentials` | List password/certificate credential metadata for expiry auditing |
+| `listOwners` | List the owners of an app registration |
+
+### azure-role-assignment
+
+The direct complement to `azure-managed-identity` — granting an identity access to a Key Vault, Storage account, or resource group is a role assignment. Mutations change who can do what; verify principal, role, and scope first.
+
+| Method | Description |
+|---|---|
+| `list` | List role assignments at the subscription, a resource group, or an explicit scope |
+| `create` | Grant a principal a role at a scope |
+| `delete` | Revoke a role assignment by its fully-qualified id |
+| `listDefinitions` | List role definitions (optionally custom-only) |
+| `getDefinition` | Get a role definition by role name (e.g. Contributor) |
+
+### azure-policy
+
+Governance via Azure Policy. Assignment mutations change enforcement — a Deny-mode assignment can block resource operations.
+
+| Method | Description |
+|---|---|
+| `listAssignments` | List policy assignments at the subscription or a resource group |
+| `getAssignment` | Get a policy assignment by name |
+| `createAssignment` | Assign a policy or initiative at a scope |
+| `deleteAssignment` | Remove a policy assignment by name |
+| `listDefinitions` | List policy definitions (use `customOnly` to skip the built-in catalog) |
+| `getDefinition` | Get a policy definition by name |
+| `listSetDefinitions` | List policy initiatives (set definitions) |
+| `summarizeCompliance` | Summarize compliance state across a scope via Policy Insights |
+
+### azure-defender
+
+Microsoft Defender for Cloud posture and detections. `setPricing` changes billing and protection coverage.
+
+| Method | Description |
+|---|---|
+| `listPricing` | List Defender plans (Free/Standard) per resource type |
+| `setPricing` | Set a Defender plan's tier for a resource type |
+| `listSecureScores` | List Defender for Cloud secure scores |
+| `listSecureScoreControls` | List the per-control breakdown behind the secure score |
+| `listAssessments` | List security assessments (recommendations) |
+| `listAlerts` | List active security alerts (detections) |
+
 ### azure-monitor
 
 | Method | Description |
@@ -301,6 +400,13 @@ SSH public key resources (`Microsoft.Compute/sshPublicKeys`) wrapped via `az ssh
 | `getWorkItem` | Get a work item by ID |
 | `createWorkItem` | Create a work item |
 | `updateWorkItem` | Update a work item |
+| `listServiceConnections` | List service connections (service endpoints) in a project |
+| `getServiceConnection` | Get a service connection by id |
+| `listVariableGroups` | List pipeline variable groups in a project |
+| `getVariableGroup` | Get a variable group by id |
+| `listPullRequests` | List pull requests across a project or one repository |
+| `getPullRequest` | Get a pull request by id |
+| `listAgentPools` | List the organization's agent pools |
 
 ### azure-vwan
 
@@ -389,6 +495,8 @@ For the DevOps model, you will need a separate vault entry for your organization
 ```bash
 swamp vault set azure-devops ORG_URL https://dev.azure.com/your-org
 ```
+
+The Entra ID models (`azure-ad-*`) are tenant-scoped rather than subscription-scoped: they take no `subscriptionId` and run `az ad` against whatever tenant your `az login` session is signed in to. They require directory read permissions (e.g. Directory Readers / `Directory.Read.All`), and credential and membership writes require the corresponding directory roles. The `azure-defender` model requires the Security Reader role to read posture, and Security Admin to change pricing tiers.
 
 ## API Compatibility
 

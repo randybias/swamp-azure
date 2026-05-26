@@ -72,7 +72,7 @@ const ConnectionMonitorSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-network-watcher",
-  version: "2026.05.26.1",
+  version: "2026.05.26.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     watcher: {

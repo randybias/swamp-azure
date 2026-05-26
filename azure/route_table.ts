@@ -48,7 +48,7 @@ const RouteTableSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-route-table",
-  version: "2026.05.26.1",
+  version: "2026.05.26.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     routeTable: {

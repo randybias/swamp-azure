@@ -10,6 +10,23 @@ export const AzureGlobalArgsSchema = z.object({
     .describe("Default resource group for operations that require one"),
 });
 
+/**
+ * Global arguments for tenant-scoped Entra ID (`az ad`) models. Entra
+ * directory objects are not subscription-scoped, so these models pass
+ * `undefined` for the subscription to {@link az} and never emit a
+ * `--subscription` flag. Authentication uses the active `az login`
+ * session; `tenantId` is informational/documentary only — `az ad`
+ * commands target whatever tenant that session is signed in to.
+ */
+export const EntraGlobalArgsSchema = z.object({
+  tenantId: z
+    .string()
+    .optional()
+    .describe(
+      "Entra tenant ID for context/documentation. Auth uses the active az login session.",
+    ),
+});
+
 export async function az(
   args: string[],
   subscriptionId?: string,
@@ -36,6 +53,38 @@ export async function az(
   if (!stdout) return null;
 
   return JSON.parse(stdout);
+}
+
+/**
+ * Classify an error thrown by {@link az} as a "not found" condition, so
+ * delete-style methods can treat an already-absent target as success
+ * (idempotent delete) rather than failing the workflow.
+ */
+export function isAzNotFound(err: unknown): boolean {
+  const msg = String(err).toLowerCase();
+  return (
+    msg.includes("not found") ||
+    msg.includes("does not exist") ||
+    msg.includes("resourcenotfound") ||
+    msg.includes("request_resourcenotfound") ||
+    msg.includes("could not be found")
+  );
+}
+
+/**
+ * Classify an error thrown by {@link az} as an "already exists" / conflict
+ * condition, so create-style methods can converge on the existing resource
+ * instead of failing (idempotent create).
+ */
+export function isAzAlreadyExists(err: unknown): boolean {
+  const msg = String(err).toLowerCase();
+  return (
+    msg.includes("already exist") ||
+    msg.includes("roleassignmentexists") ||
+    msg.includes("already present") ||
+    msg.includes("references already exist") ||
+    msg.includes("conflict")
+  );
 }
 
 export function sanitizeInstanceName(name: string): string {
