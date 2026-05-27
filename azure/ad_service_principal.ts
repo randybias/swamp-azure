@@ -52,7 +52,7 @@ const OwnerSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-ad-service-principal",
-  version: "2026.05.27.1",
+  version: "2026.05.27.2",
   globalArguments: EntraGlobalArgsSchema,
   resources: {
     servicePrincipal: {

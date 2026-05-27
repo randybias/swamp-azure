@@ -59,7 +59,7 @@ const PrivateDnsZoneSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-private-endpoint",
-  version: "2026.05.27.1",
+  version: "2026.05.27.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     privateEndpoint: {

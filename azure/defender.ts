@@ -56,7 +56,7 @@ const AlertSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-defender",
-  version: "2026.05.27.1",
+  version: "2026.05.27.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     pricing: {

@@ -69,13 +69,13 @@ const FirewallPolicySchema = z
  * priority-ordered collections inside a policy. Granular helpers
  * (addFilterCollection, addNatCollection, addRule, removeRule,
  * removeCollection) avoid the full PATCH-payload pattern that the
- * raw CLI forces, which matters for DNAT pinholes on the hub PIP
- * `52.173.32.224` and other production network paths. Mutations are
+ * raw CLI forces, which matters for DNAT pinholes on the hub public
+ * IP and other production network paths. Mutations are
  * traffic-affecting — coordinate with change windows.
  */
 export const model = {
   type: "@dougschaefer/azure-firewall",
-  version: "2026.05.27.1",
+  version: "2026.05.27.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     firewall: {

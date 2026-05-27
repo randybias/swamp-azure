@@ -150,14 +150,13 @@ const AgentPoolSchema = z
  * (listVariableGroups, getVariableGroup) read pipeline variable
  * groups; pull-request methods (listPullRequests, getPullRequest)
  * read PRs across a project or one repository; listAgentPools reads
- * the organization-level agent pools. Used by ASEI workflows that
- * bootstrap repos, trigger publish pipelines (such as
- * `publish-catalog`), and create tracking tickets — mutations touch
- * production project state.
+ * the organization-level agent pools. Used by CI/CD workflows that
+ * bootstrap repos, trigger publish pipelines, and create tracking
+ * tickets — mutations touch production project state.
  */
 export const model = {
   type: "@dougschaefer/azure-devops",
-  version: "2026.05.27.1",
+  version: "2026.05.27.2",
   globalArguments: DevOpsGlobalArgsSchema,
   resources: {
     project: {

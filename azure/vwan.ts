@@ -140,12 +140,12 @@ const VpnGatewaySchema = z
  * endpoint metadata (device, address space, link properties) for
  * S2S VPN. VPN-gateway methods (listVpnGateways, getVpnGateway)
  * inspect the gateways and their tunnels. inventory aggregates the
- * vWAN posture for audit. Critical for the Indianapolis-office S2S
- * VPN tunnel and the DNAT pattern on hub PIP `52.173.32.224`.
+ * vWAN posture for audit. Critical for site-to-site VPN tunnels and
+ * the hub DNAT pattern.
  */
 export const model = {
   type: "@dougschaefer/azure-vwan",
-  version: "2026.05.27.1",
+  version: "2026.05.27.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vwan: {

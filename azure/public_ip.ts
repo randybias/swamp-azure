@@ -44,13 +44,13 @@ const PublicIpSchema = z
  * referencing them via ipConfiguration. get and sync return or
  * refresh one IP. create provisions a new public IP — the typical
  * input for VM NICs, Application Gateway frontends, Bastion hosts,
- * NAT gateways, and the hub PIP `52.173.32.224` used as the only
- * working DNAT target. delete removes a public IP. Static SKU
+ * NAT gateways, and the hub public IP used as the DNAT target.
+ * delete removes a public IP. Static SKU
  * Standard IPs are the default for production hub topology.
  */
 export const model = {
   type: "@dougschaefer/azure-public-ip",
-  version: "2026.05.27.1",
+  version: "2026.05.27.2",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     publicIp: {
