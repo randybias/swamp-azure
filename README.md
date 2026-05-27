@@ -259,7 +259,7 @@ SSH public key resources (`Microsoft.Compute/sshPublicKeys`) wrapped via `az ssh
 
 ### azure-ad-user
 
-Tenant-scoped (Entra ID) — authenticates via the active `az login` session, no subscription. Read-only by design; directory account provisioning is intentionally out of scope.
+Tenant-scoped (Entra ID) — authenticates via the active `az login` session, no subscription. Reads, plus a security-conscious `provision` write.
 
 | Method | Description |
 |---|---|
@@ -267,6 +267,9 @@ Tenant-scoped (Entra ID) — authenticates via the active `az login` session, no
 | `get` | Get a user by UPN or object id |
 | `sync` | Refresh stored state without making changes |
 | `getMemberGroups` | List the groups a user belongs to (access review) |
+| `provision` | Create a user from non-secret fields via Microsoft Graph. A single-use temp password is generated in-process, sent in the request body (never in argv), set with force-change-on-next-sign-in, then discarded — never an input, returned, logged, persisted, or vaulted. The method persists nothing |
+
+`provision` is the deliberate inverse of credential-bearing service-principal/app creation: a person's temp password is ephemeral, so nothing is kept; a service principal's minted secret is long-lived, so it would be captured into a vault. Guarded by a `live` `directory-access` pre-flight check (skip with `--skip-check-label live`).
 
 ### azure-ad-group
 
@@ -452,6 +455,12 @@ The topology model operates at the subscription level rather than on individual 
 | `generate` | Produce a Mermaid diagram of network topology with Azure-branded colors |
 | `costEstimate` | Estimate monthly VM and firewall costs via the Azure Retail Pricing API |
 | `exportTemplate` | Export the full ARM template for a resource group |
+
+## Workflows
+
+| Workflow | Description |
+|---|---|
+| `@dougschaefer/provision-entra-user` | Operator-facing entrypoint that takes non-secret user fields (`displayName`, `userPrincipalName`, optional `mailNickname`) and delegates to `azure-ad-user.provision`. The temp password is generated inside the model and never crosses an input, log, audit entry, or stored resource. Expects an `azure-ad-user` instance named `entra-users`. |
 
 ## Installation
 

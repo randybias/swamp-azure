@@ -56,6 +56,55 @@ export async function az(
 }
 
 /**
+ * Acquire a Microsoft Graph access token from the active `az login` session.
+ * The token arrives in `az`'s JSON output (never on a command line) and lives
+ * only in memory for the duration of the request — it is never logged or
+ * persisted.
+ */
+export async function graphToken(): Promise<string> {
+  const result = (await az(
+    [
+      "account",
+      "get-access-token",
+      "--resource",
+      "https://graph.microsoft.com",
+    ],
+    undefined,
+  )) as { accessToken?: string } | null;
+  const token = result?.accessToken;
+  if (!token) {
+    throw new Error(
+      "Could not acquire a Microsoft Graph access token from the active az session",
+    );
+  }
+  return token;
+}
+
+/**
+ * Make an authenticated Microsoft Graph v1.0 request. The bearer token and any
+ * request body stay in memory and on the HTTPS wire — never in process
+ * arguments, logs, or model data. Returns the HTTP status and parsed body so
+ * the caller can branch on it.
+ */
+export async function graphRequest(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; data: unknown }> {
+  const token = await graphToken();
+  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  return { status: res.status, data: text ? JSON.parse(text) : null };
+}
+
+/**
  * Classify an error thrown by {@link az} as a "not found" condition, so
  * delete-style methods can treat an already-absent target as success
  * (idempotent delete) rather than failing the workflow.

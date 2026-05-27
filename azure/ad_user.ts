@@ -1,5 +1,27 @@
 import { z } from "npm:zod@4.3.6";
-import { az, EntraGlobalArgsSchema, sanitizeInstanceName } from "./_helpers.ts";
+import {
+  az,
+  EntraGlobalArgsSchema,
+  graphRequest,
+  isAzAlreadyExists,
+  sanitizeInstanceName,
+} from "./_helpers.ts";
+
+/**
+ * Generate a single-use temporary password that satisfies the Entra default
+ * complexity policy (>= 3 of 4 character categories). The value exists only in
+ * this process's memory for the duration of one create call — it is never
+ * returned, logged, persisted to model data, or written to a vault. The
+ * account is created with force-change-on-next-sign-in, so the human replaces
+ * it immediately and this value is discarded.
+ */
+function generateTempPassword(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const body = btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, "");
+  // Suffix guarantees upper, lower, digit, and symbol categories.
+  return `${body}Aa1!`;
+}
 
 const UserSchema = z
   .object({
@@ -33,14 +55,23 @@ const MembershipSchema = z
  * list enumerates users (optionally narrowed by an OData `$filter`),
  * get and sync return or refresh one user by UPN or object id, and
  * getMemberGroups resolves the groups a user belongs to for access
- * audits. User provisioning (create/update/delete) is intentionally
- * out of scope — directory account lifecycle involves password and
- * licensing material better handled interactively, not through an
- * infrastructure automation surface.
+ * audits. provision creates a new directory user from non-secret
+ * profile fields via Microsoft Graph (POST /v1.0/users): it generates
+ * a single-use temporary password in-process, sends it in the request
+ * body (never in a process argument), creates the account with
+ * force-change-on-next-sign-in, and then discards that password — it
+ * is never an input, never returned, never logged, never written to
+ * model data, and never vaulted. The method persists nothing; the
+ * only record of the
+ * operation is the non-secret action in swamp's audit trail and the
+ * method's structured log (UPN + object id, no credential). This is
+ * the deliberate inverse of credential-bearing service-principal or
+ * app provisioning, where the minted secret is long-lived and must
+ * be captured into a vault.
  */
 export const model = {
   type: "@dougschaefer/azure-ad-user",
-  version: "2026.05.26.2",
+  version: "2026.05.27.1",
   globalArguments: EntraGlobalArgsSchema,
   resources: {
     user: {
@@ -162,6 +193,106 @@ export const model = {
           handles.push(handle);
         }
         return { dataHandles: handles };
+      },
+    },
+
+    provision: {
+      description:
+        "Create a directory user from non-secret profile fields via Microsoft Graph (POST /v1.0/users). A single-use temp password is generated in-process and placed in the request body (never in process arguments), the account is created with force-change-on-next-sign-in, and the password is then discarded — never an input, returned, logged, persisted, or vaulted. The method persists nothing.",
+      arguments: z.object({
+        displayName: z.string().describe("User display name"),
+        userPrincipalName: z
+          .string()
+          .describe("UPN / sign-in name (user@verified-domain)"),
+        mailNickname: z
+          .string()
+          .optional()
+          .describe("Mail alias; defaults to the UPN local part"),
+        jobTitle: z.string().optional().describe("Job title"),
+        department: z.string().optional().describe("Department"),
+        usageLocation: z
+          .string()
+          .optional()
+          .describe("Two-letter ISO country code (required before licensing)"),
+        accountEnabled: z
+          .boolean()
+          .optional()
+          .describe("Whether the account is enabled (default true)"),
+      }),
+      execute: async (args, context) => {
+        // Fall back to the UPN local part when mailNickname is omitted or
+        // passed empty (e.g. an unset optional workflow input).
+        const mailNickname = args.mailNickname?.trim() ||
+          args.userPrincipalName.split("@")[0];
+        const tempPassword = generateTempPassword();
+
+        const body: Record<string, unknown> = {
+          accountEnabled: args.accountEnabled ?? true,
+          displayName: args.displayName,
+          userPrincipalName: args.userPrincipalName,
+          mailNickname,
+          passwordProfile: {
+            forceChangePasswordNextSignIn: true,
+            password: tempPassword,
+          },
+        };
+        if (args.jobTitle) body.jobTitle = args.jobTitle;
+        if (args.department) body.department = args.department;
+        if (args.usageLocation) body.usageLocation = args.usageLocation;
+
+        const { status, data } = await graphRequest("POST", "/users", body);
+
+        if (status === 201) {
+          const user = data as Record<string, unknown>;
+          // Non-secret confirmation only. The temp password never appears in
+          // this log, the Graph response, or any persistence.
+          context.logger.info(
+            "Provisioned user {upn} (objectId {id}) via Graph; temp password set with force-change-on-next-sign-in and discarded",
+            { upn: args.userPrincipalName, id: user.id },
+          );
+        } else {
+          const err = (data as { error?: { code?: string; message?: string } })
+            ?.error;
+          const detail = `${err?.code ?? ""} ${err?.message ?? ""}`.trim() ||
+            `HTTP ${status}`;
+          // Graph error bodies never echo the request password.
+          if (isAzAlreadyExists(detail)) {
+            context.logger.info("User {upn} already exists — no change", {
+              upn: args.userPrincipalName,
+            });
+          } else {
+            throw new Error(
+              `Graph create user failed for ${args.userPrincipalName} (HTTP ${status}): ${detail}`,
+            );
+          }
+        }
+
+        // Persist nothing: no user information is kept inside the model.
+        return { dataHandles: [] };
+      },
+    },
+  },
+
+  checks: {
+    "directory-access": {
+      description:
+        "Verify the active az login session can reach the Entra directory before provisioning a user.",
+      labels: ["live"],
+      appliesTo: ["provision"],
+      execute: async (_context) => {
+        try {
+          await az(["ad", "signed-in-user", "show"], undefined);
+          return { pass: true };
+        } catch (err) {
+          return {
+            pass: false,
+            errors: [
+              `No Entra directory access from the active az session: ${
+                String(err)
+              }`,
+            ],
+          };
+        }
       },
     },
   },

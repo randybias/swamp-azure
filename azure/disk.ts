@@ -41,7 +41,7 @@ const DiskSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-disk",
-  version: "2026.05.26.2",
+  version: "2026.05.27.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     disk: {
