@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@dougschaefer/azure"
-version: "2026.05.27.2"
+version: "2026.05.27.3"
 description: "Azure infrastructure management via az CLI — 31 model types covering compute, networking, data, security, RBAC, Azure Policy, Defender for Cloud, Entra directory, monitoring, DNS, DevOps, and subscription-wide topology with Mermaid diagrams and cost estimation."
 repository: https://github.com/dougschaefer6/swamp-azure
 additionalFiles:

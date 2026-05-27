@@ -1,3 +1,4 @@
+id: 5fe81c5c-677b-43ea-b6de-b74d2b60ae28
 name: "@dougschaefer/provision-entra-user"
 description: >-
   Operator-facing entrypoint to provision a new Entra ID user from non-secret
