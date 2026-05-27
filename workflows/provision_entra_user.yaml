@@ -1,0 +1,45 @@
+name: "@dougschaefer/provision-entra-user"
+description: >-
+  Operator-facing entrypoint to provision a new Entra ID user from non-secret
+  profile fields. Delegates to @dougschaefer/azure-ad-user.provision on the
+  `entra-users` instance, which generates a single-use temporary password
+  in-process (force-change-on-next-sign-in) and discards it — no credential is
+  ever an input, logged, persisted to model data, or vaulted. Only the
+  non-secret action and profile fields land in swamp's audit trail.
+tags: {}
+inputs:
+  properties:
+    displayName:
+      type: string
+      description: User display name.
+    userPrincipalName:
+      type: string
+      description: UPN / sign-in name (user@verified-domain).
+    mailNickname:
+      type: string
+      description: Mail alias; defaults to the UPN local part when omitted.
+  required:
+    - displayName
+    - userPrincipalName
+jobs:
+  - name: provision
+    description: Create the directory user via the azure-ad-user model.
+    steps:
+      - name: create-user
+        description: >-
+          Generate a single-use temp password in-process and create the
+          account with force-change-on-next-sign-in.
+        task:
+          type: model_method
+          modelIdOrName: entra-users
+          methodName: provision
+          inputs:
+            displayName: '${{ inputs.displayName }}'
+            userPrincipalName: '${{ inputs.userPrincipalName }}'
+            mailNickname: '${{ inputs.mailNickname }}'
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1
