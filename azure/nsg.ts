@@ -61,7 +61,7 @@ const NsgSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-nsg",
-  version: "2026.05.27.3",
+  version: "2026.06.29.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     nsg: {

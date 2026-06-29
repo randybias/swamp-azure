@@ -38,9 +38,15 @@ const VmInstanceViewSchema = z
   })
   .passthrough();
 
+/**
+ * `@dougschaefer/azure-vm` model — manage Azure virtual machines through the
+ * Azure CLI. Enumerate VMs across a subscription or resource group with power
+ * state, size, OS, and network attributes, and drive lifecycle operations
+ * (start, deallocate, restart) against a specific instance.
+ */
 export const model = {
   type: "@dougschaefer/azure-vm",
-  version: "2026.05.27.3",
+  version: "2026.06.29.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vm: {

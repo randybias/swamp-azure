@@ -1,6 +1,6 @@
 # @dougschaefer/azure
 
-Azure infrastructure management for [Swamp](https://swamp.club), covering 31 model types across compute, networking, data services, security, RBAC, Azure Policy, Defender for Cloud, Entra ID directory, monitoring, DNS, DevOps, and subscription-wide topology visualization. Every method runs through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription.
+Azure infrastructure management for [Swamp](https://swamp.club), covering 32 model types across compute, networking, data services, security, RBAC, Azure Policy, Defender for Cloud, Entra ID directory, monitoring, DNS, DevOps, subscription-wide topology visualization, and the Azure AI Vision Face REST API for identity-aware room services. Most methods run through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription. The one exception is `azure-face`, a data-plane REST type authenticated by a per-resource subscription key supplied via vault (see Vault setup below).
 
 Container Apps, Container Apps Jobs, and Azure Container Registry are covered by the companion extension [`@rkcoleman/azure-containers`](https://github.com/rkcoleman/swamp-azure-containers), which is designed to compose with these models.
 
@@ -43,6 +43,7 @@ Most models include a `sync` method that refreshes stored state without making c
 | `azure-vwan` | Virtual WANs, hubs, hub connections, VPN sites, and VPN gateways |
 | `azure-resource-group` | Resource group lifecycle |
 | `azure-topology` | Subscription-wide inventory, Mermaid diagrams, cost estimation, and ARM template export |
+| `azure-face` | Azure AI Vision Face REST API — detect faces, manage PersonGroups, enroll Persons (Entra objectId in userData), train, and run 1:N identify for identity-aware room services |
 
 ## Method Reference
 
@@ -456,6 +457,26 @@ The topology model operates at the subscription level rather than on individual 
 | `costEstimate` | Estimate monthly VM and firewall costs via the Azure Retail Pricing API |
 | `exportTemplate` | Export the full ARM template for a resource group |
 
+### azure-face
+
+The Face model wraps the [Azure AI Vision Face REST API](https://learn.microsoft.com/rest/api/face/) for identity-aware room services (IARS). It is the only type in this extension that does not shell out to `az` — it is a data-plane REST service authenticated by a per-resource subscription key, so it carries its own fetch-based client and its own global arguments (`endpoint`, `key`) supplied from vault. The recognition pipeline is: a camera frame goes to `detect` (returns ephemeral faceIds), those faceIds go to `identify` (1:N match against a PersonGroup), and the matched Person's `userData` field carries the Entra objectId that the downstream `iars-correlate` workflow consumes to load the right AV scene.
+
+`detect` works at all Face subscription tiers today. `identify`, `addPersonFace`, and `trainPersonGroup` are gated behind Microsoft's [Limited Access](https://aka.ms/facerecognition) program for the Face API and will return HTTP 401 until that approval is in place. `detectLiveness` is a documented stub — Azure liveness is a client-side SDK session flow, not a single REST call.
+
+| Method | Description |
+|---|---|
+| `detect` | Detect faces in an image URL; returns ephemeral faceIds for `identify` |
+| `identify` | 1:N identify faceIds against a PersonGroup; top candidate `userData` = Entra objectId (Limited Access) |
+| `createPersonGroup` | Create a PersonGroup for enrollment |
+| `listPersonGroups` | List all PersonGroups under the Face resource |
+| `deletePersonGroup` | Delete a PersonGroup and all its Persons/faces (destructive) |
+| `addPerson` | Add a Person with `userData` set to the Entra objectId |
+| `addPersonFace` | Enroll a face image for a Person (Limited Access) |
+| `listPersons` | List enrolled Persons in a PersonGroup |
+| `trainPersonGroup` | Trigger training after enrollment changes (Limited Access) |
+| `getPersonGroupTrainingStatus` | Poll training status until `succeeded` |
+| `detectLiveness` | Stub — liveness requires the Azure AI Vision Face client SDK session flow |
+
 ## Workflows
 
 | Workflow | Description |
@@ -504,6 +525,16 @@ For the DevOps model, you will need a separate vault entry for your organization
 ```bash
 swamp vault set azure-devops ORG_URL https://dev.azure.com/your-org
 ```
+
+The `azure-face` model does not use the `az` session. Create a dedicated vault and store the Face resource endpoint and subscription key:
+
+```bash
+swamp vault create azure-face --type local_encryption
+swamp vault set azure-face endpoint https://<resource>.cognitiveservices.azure.com
+swamp vault set azure-face key <subscription-key>
+```
+
+Wire them into the instance global arguments as `${{ vault.get(azure-face, endpoint) }}` and `${{ vault.get(azure-face, key) }}`. `detect` works on any tier; `identify`/enrollment/training require Microsoft Limited Access.
 
 The Entra ID models (`azure-ad-*`) are tenant-scoped rather than subscription-scoped: they take no `subscriptionId` and run `az ad` against whatever tenant your `az login` session is signed in to. They require directory read permissions (e.g. Directory Readers / `Directory.Read.All`), and credential and membership writes require the corresponding directory roles. The `azure-defender` model requires the Security Reader role to read posture, and Security Admin to change pricing tiers.
 

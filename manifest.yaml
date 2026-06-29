@@ -1,7 +1,7 @@
 manifestVersion: 1
 name: "@dougschaefer/azure"
-version: "2026.05.27.3"
-description: "Azure infrastructure management via az CLI — 31 model types covering compute, networking, data, security, RBAC, Azure Policy, Defender for Cloud, Entra directory, monitoring, DNS, DevOps, and subscription-wide topology with Mermaid diagrams and cost estimation."
+version: "2026.06.29.1"
+description: "Azure infrastructure management via az CLI — 32 model types covering compute, networking, data, security, RBAC, Azure Policy, Defender for Cloud, Entra directory, monitoring, DNS, DevOps, subscription-wide topology with Mermaid diagrams and cost estimation, and the Azure AI Vision Face REST API for identity-aware room services."
 repository: https://github.com/dougschaefer6/swamp-azure
 additionalFiles:
   - README.md
@@ -17,6 +17,9 @@ labels:
   - entra
   - identity
   - security
+  - face
+  - cognitive-services
+  - iars
 workflows:
   - provision_entra_user.yaml
 models:
@@ -30,6 +33,7 @@ models:
   - azure/devops.ts
   - azure/disk.ts
   - azure/dns.ts
+  - azure/face.ts
   - azure/firewall.ts
   - azure/key_vault.ts
   - azure/load_balancer.ts
