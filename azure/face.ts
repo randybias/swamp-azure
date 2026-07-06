@@ -38,7 +38,7 @@ import {
  */
 export const model = {
   type: "@dougschaefer/azure-face",
-  version: "2026.06.29.1",
+  version: "2026.07.06.1",
   globalArguments: AzureFaceGlobalArgsSchema,
   resources: {
     detectionResult: {
@@ -270,8 +270,31 @@ export const model = {
         const top = (candidates[0] ?? {}) as Record<string, unknown>;
         const topPersonId = String(top.personId ?? "");
         const topConfidence = Number(top.confidence ?? 0);
-        // userData is fetched from the Person record in the iars-correlate
-        // workflow; we surface personId + confidence here for fast CEL wiring.
+        // Resolve the top candidate's userData (the Entra objectId for IARS) by
+        // reading the Person record — Azure's identify response returns only the
+        // personId, not userData. Best-effort: a lookup failure leaves topUserData
+        // empty and never breaks identification. This is the value iars-correlate
+        // consumes, so resolving it here saves the caller a separate lookup.
+        let topUserData = "";
+        if (topPersonId) {
+          try {
+            const { data: person } = await faceRequest(
+              context.globalArgs,
+              "GET",
+              `/persongroups/${
+                encodeURIComponent(args.personGroupId)
+              }/persons/${encodeURIComponent(topPersonId)}`,
+            );
+            topUserData = String(
+              (person as Record<string, unknown>)?.userData ?? "",
+            );
+          } catch (err) {
+            context.logger.warn(
+              "identify: could not resolve userData for person {pid}: {err}",
+              { pid: topPersonId, err: String(err) },
+            );
+          }
+        }
         const handle = await context.writeResource(
           "identifyResult",
           `identify-${args.personGroupId}`,
@@ -280,7 +303,7 @@ export const model = {
             results,
             candidateCount: candidates.length,
             topPersonId,
-            topUserData: "", // populated downstream by listPersons or iars-correlate
+            topUserData,
             topConfidence,
             capturedAt: new Date().toISOString(),
           },

@@ -29,7 +29,7 @@ const SshKeySchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-ssh-key",
-  version: "2026.06.29.1",
+  version: "2026.07.06.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     sshKey: {
