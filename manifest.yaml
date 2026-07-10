@@ -1,7 +1,7 @@
 manifestVersion: 1
 name: "@dougschaefer/azure"
-version: "2026.07.10.1"
-description: "Azure infrastructure management via az CLI — 32 model types covering compute, networking, data, security, RBAC, Azure Policy, Defender for Cloud, Entra directory, monitoring, DNS, DevOps, subscription-wide topology with Mermaid diagrams and cost estimation, and the Azure AI Vision Face REST API for identity-aware room services."
+version: "2026.07.10.2"
+description: "Azure infrastructure management via az CLI — 38 model types covering compute, networking, data, security, RBAC, Azure Policy, Defender for Cloud, Entra directory, monitoring, DNS, DevOps, Azure AI Foundry (accounts, model deployments, projects, quota), AI Search, Cosmos DB, Static Web Apps, Service Bus, Event Grid, subscription-wide topology with Mermaid diagrams and cost estimation, and the Azure AI Vision Face REST API for identity-aware room services."
 repository: https://github.com/dougschaefer6/swamp-azure
 additionalFiles:
   - README.md
@@ -20,20 +20,30 @@ labels:
   - face
   - cognitive-services
   - iars
+  - ai
+  - foundry
+  - openai
+  - cosmos
+  - messaging
 workflows:
   - provision_entra_user.yaml
   - azure_rbac_audit.yaml
+  - azure_ai_inventory.yaml
 models:
   - azure/ad_app_registration.ts
   - azure/ad_group.ts
   - azure/ad_service_principal.ts
   - azure/ad_user.ts
+  - azure/ai_foundry.ts
+  - azure/ai_search.ts
   - azure/application_gateway.ts
   - azure/bastion.ts
+  - azure/cosmos.ts
   - azure/defender.ts
   - azure/devops.ts
   - azure/disk.ts
   - azure/dns.ts
+  - azure/eventgrid.ts
   - azure/face.ts
   - azure/firewall.ts
   - azure/key_vault.ts
@@ -49,8 +59,10 @@ models:
   - azure/resource_group.ts
   - azure/role_assignment.ts
   - azure/route_table.ts
+  - azure/servicebus.ts
   - azure/sql.ts
   - azure/ssh_key.ts
+  - azure/staticwebapp.ts
   - azure/storage_account.ts
   - azure/topology.ts
   - azure/vm.ts

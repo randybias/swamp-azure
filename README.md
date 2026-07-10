@@ -1,6 +1,6 @@
 # @dougschaefer/azure
 
-Azure infrastructure management for [Swamp](https://swamp.club), covering 32 model types across compute, networking, data services, security, RBAC, Azure Policy, Defender for Cloud, Entra ID directory, monitoring, DNS, DevOps, subscription-wide topology visualization, and the Azure AI Vision Face REST API for identity-aware room services. Most methods run through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription. The one exception is `azure-face`, a data-plane REST type authenticated by a per-resource subscription key supplied via vault (see Vault setup below).
+Azure infrastructure management for [Swamp](https://swamp.club), covering 38 model types across compute, networking, data services, security, RBAC, Azure Policy, Defender for Cloud, Entra ID directory, monitoring, DNS, DevOps, Azure AI Foundry (accounts, model deployments, projects, quota), AI Search, Cosmos DB, Static Web Apps, Service Bus, Event Grid, subscription-wide topology visualization, and the Azure AI Vision Face REST API for identity-aware room services. Most methods run through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription. The one exception is `azure-face`, a data-plane REST type authenticated by a per-resource subscription key supplied via vault (see Vault setup below).
 
 Container Apps, Container Apps Jobs, and Azure Container Registry are covered by the companion extension [`@rkcoleman/azure-containers`](https://github.com/rkcoleman/swamp-azure-containers), which is designed to compose with these models.
 
@@ -44,6 +44,12 @@ Most models include a `sync` method that refreshes stored state without making c
 | `azure-resource-group` | Resource group lifecycle |
 | `azure-topology` | Subscription-wide inventory, Mermaid diagrams, cost estimation, and ARM template export |
 | `azure-face` | Azure AI Vision Face REST API — detect faces, manage PersonGroups, enroll Persons (Entra objectId in userData), train, and run 1:N identify for identity-aware room services |
+| `azure-ai-foundry` | Azure AI Foundry / AI Services — accounts, model deployments (create/delete), Foundry projects and connections, per-region model catalog and quota |
+| `azure-ai-search` | Azure AI Search service lifecycle — the retrieval layer behind Foundry RAG agents |
+| `azure-cosmos` | Cosmos DB inventory — accounts, SQL databases, and containers (read-only) |
+| `azure-staticwebapp` | Static Web Apps inventory — sites and deployment environments (read-only) |
+| `azure-servicebus` | Service Bus inventory — namespaces, queues, topics, and subscriptions with message-depth attributes (read-only) |
+| `azure-eventgrid` | Event Grid inventory — topics, system topics, and event subscriptions (read-only) |
 
 ## Method Reference
 
@@ -484,12 +490,90 @@ The Face model wraps the [Azure AI Vision Face REST API](https://learn.microsoft
 | `getPersonGroupTrainingStatus` | Poll training status until `succeeded` |
 | `detectLiveness` | Stub — liveness requires the Azure AI Vision Face client SDK session flow |
 
+### azure-ai-foundry
+
+Azure AI Foundry and the AI Services accounts it is built on. `listDeployments` is a fan-out — omit `accountName` to sweep every account in the subscription in one run. Foundry projects and connections are read over ARM (the CLI does not expose them yet). Account keys are never fetched; data-plane credentials belong in vaults, following the `azure-face` pattern.
+
+| Method | Description |
+|---|---|
+| `listAccounts` | List AI Services / Cognitive Services accounts, optionally filtered by kind (AIServices, OpenAI, Face, ...) |
+| `getAccount` | Get a single account |
+| `syncAccount` | Refresh stored account state without making changes |
+| `listDeployments` | List model deployments on one account, or fan out across every account in scope |
+| `createDeployment` | Deploy a model (name, version, format, SKU, capacity); idempotent |
+| `deleteDeployment` | Remove a model deployment; idempotent |
+| `listProjects` | List Foundry projects on an account (AIServices kind) |
+| `listConnections` | List Foundry connections on an account (metadata only, no secrets) |
+| `listModels` | Snapshot the deployable model catalog for a region as one resource |
+| `listUsage` | Snapshot per-region quota usage (current vs. limit) as one resource |
+
+### azure-ai-search
+
+The retrieval layer behind Foundry RAG agents. Admin/query keys are never fetched, and index/document operations are data plane and out of scope.
+
+| Method | Description |
+|---|---|
+| `list` | List search services (subscription-wide via ARM when no resource group given) |
+| `get` | Get a search service |
+| `sync` | Refresh stored state without making changes |
+| `create` | Create a search service (SKU, replicas, partitions); idempotent |
+| `delete` | Delete a search service and its indexes; idempotent |
+
+### azure-cosmos
+
+Read-only Cosmos DB inventory over the SQL (Core) API surface. Keys and connection strings are deliberately excluded.
+
+| Method | Description |
+|---|---|
+| `list` | List Cosmos DB accounts in a resource group or subscription |
+| `get` | Get a Cosmos DB account |
+| `sync` | Refresh stored state without making changes |
+| `listDatabases` | List SQL databases on an account |
+| `listContainers` | List containers in a database |
+
+### azure-staticwebapp
+
+Read-only Static Web Apps inventory. Creation is excluded (real deployments are repo/CI-wired); app settings and deployment tokens are secret material and never flow through model data.
+
+| Method | Description |
+|---|---|
+| `list` | List Static Web Apps in a resource group or subscription |
+| `get` | Get a Static Web App |
+| `sync` | Refresh stored state without making changes |
+| `listEnvironments` | List deployment environments (including production) |
+
+### azure-servicebus
+
+Read-only Service Bus inventory; queue/topic entities carry message-depth attributes for monitoring. Authorization rules and SAS keys are excluded.
+
+| Method | Description |
+|---|---|
+| `listNamespaces` | List Service Bus namespaces |
+| `getNamespace` | Get a namespace |
+| `syncNamespace` | Refresh stored state without making changes |
+| `listQueues` | List queues in a namespace |
+| `listTopics` | List topics in a namespace |
+| `listSubscriptions` | List subscriptions on a topic |
+
+### azure-eventgrid
+
+Read-only Event Grid inventory.
+
+| Method | Description |
+|---|---|
+| `listTopics` | List custom topics |
+| `getTopic` | Get a custom topic |
+| `syncTopic` | Refresh stored state without making changes |
+| `listSystemTopics` | List system topics |
+| `listSubscriptions` | List event subscriptions for a source resource id |
+
 ## Workflows
 
 | Workflow | Description |
 |---|---|
 | `@dougschaefer/provision-entra-user` | Operator-facing entrypoint that takes non-secret user fields (`displayName`, `userPrincipalName`, optional `mailNickname`) and delegates to `azure-ad-user.provision`. The temp password is generated inside the model and never crosses an input, log, audit entry, or stored resource. Expects an `azure-ad-user` instance named `entra-users`. |
 | `@dougschaefer/azure-rbac-audit` | Read-only subscription RBAC snapshot for access reviews: every role assignment at every scope (including management-group inheritance on az CLI 2.87+), every deny assignment, and every custom role definition, captured as versioned model data. Pass `fast: true` to skip principal/role-name resolution on large tenants. Expects an `azure-role-assignment` instance named `rbac-assignments`. |
+| `@dougschaefer/azure-ai-inventory` | Read-only subscription AI footprint snapshot: every AI Services account, every model deployment (single fan-out run), and every AI Search service. Expects an `azure-ai-foundry` instance named `ai-foundry` and an `azure-ai-search` instance named `ai-search`. |
 
 ## Installation
 

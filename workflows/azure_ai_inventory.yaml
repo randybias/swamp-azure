@@ -1,0 +1,61 @@
+id: 9f05e1c0-a5ce-4ddd-a12f-81dabad11011
+name: "@dougschaefer/azure-ai-inventory"
+description: >-
+  Subscription AI footprint snapshot: every AI Services / Cognitive Services
+  account (Foundry AIServices, OpenAI, Face, Speech, ...), every model
+  deployment on every account (single fan-out run), and every AI Search
+  service, captured as versioned model data. Read-only — changes nothing.
+  Runs against an @dougschaefer/azure-ai-foundry instance named `ai-foundry`
+  and an @dougschaefer/azure-ai-search instance named `ai-search`. The
+  account/deployment steps run sequentially (shared model lock); the search
+  listing runs in parallel.
+tags: {}
+inputs:
+  properties: {}
+  required: []
+jobs:
+  - name: inventory
+    description: Capture AI accounts, model deployments, and search services.
+    steps:
+      - name: list-accounts
+        description: >-
+          List all AI Services / Cognitive Services accounts in the
+          subscription, any kind.
+        task:
+          type: model_method
+          modelIdOrName: ai-foundry
+          methodName: listAccounts
+          inputs: {}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: list-deployments
+        description: >-
+          Fan out across every account and capture each model deployment
+          (deployed model name, version, SKU, capacity).
+        task:
+          type: model_method
+          modelIdOrName: ai-foundry
+          methodName: listDeployments
+          inputs: {}
+        dependsOn:
+          - step: list-accounts
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: list-search-services
+        description: >-
+          List AI Search services subscription-wide — the retrieval layer
+          behind Foundry RAG agents.
+        task:
+          type: model_method
+          modelIdOrName: ai-search
+          methodName: list
+          inputs: {}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1
