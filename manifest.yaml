@@ -1,7 +1,7 @@
 manifestVersion: 1
 name: "@dougschaefer/azure"
-version: "2026.07.10.2"
-description: "Azure infrastructure management via az CLI — 38 model types covering compute, networking, data, security, RBAC, Azure Policy, Defender for Cloud, Entra directory, monitoring, DNS, DevOps, Azure AI Foundry (accounts, model deployments, projects, quota), AI Search, Cosmos DB, Static Web Apps, Service Bus, Event Grid, subscription-wide topology with Mermaid diagrams and cost estimation, and the Azure AI Vision Face REST API for identity-aware room services."
+version: "2026.07.10.3"
+description: "Azure infrastructure management via az CLI — 42 model types covering compute, networking, data, security, RBAC, Azure Policy, Defender for Cloud, Entra directory, monitoring, DNS, DevOps, Azure AI Foundry (accounts, model deployments, projects, quota), AI Search, Cosmos DB, PostgreSQL Flexible Server, Static Web Apps, Service Bus, Event Grid, Recovery Services, Log Analytics, subscription-wide topology with Mermaid diagrams and cost estimation, and the Azure AI Vision Face REST API for identity-aware room services."
 repository: https://github.com/dougschaefer6/swamp-azure
 additionalFiles:
   - README.md
@@ -25,6 +25,8 @@ labels:
   - openai
   - cosmos
   - messaging
+  - postgres
+  - backup
 workflows:
   - provision_entra_user.yaml
   - azure_rbac_audit.yaml
@@ -48,14 +50,18 @@ models:
   - azure/firewall.ts
   - azure/key_vault.ts
   - azure/load_balancer.ts
+  - azure/log_analytics_workspace.ts
   - azure/managed_identity.ts
   - azure/monitor.ts
   - azure/nat_gateway.ts
+  - azure/network_interface.ts
   - azure/network_watcher.ts
   - azure/nsg.ts
   - azure/policy.ts
+  - azure/postgres_flexible_server.ts
   - azure/private_endpoint.ts
   - azure/public_ip.ts
+  - azure/recovery_services_vault.ts
   - azure/resource_group.ts
   - azure/role_assignment.ts
   - azure/route_table.ts

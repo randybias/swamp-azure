@@ -55,7 +55,7 @@ const SqlDatabaseSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-sql",
-  version: "2026.07.10.2",
+  version: "2026.07.10.3",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     server: {

@@ -1,6 +1,6 @@
 # @dougschaefer/azure
 
-Azure infrastructure management for [Swamp](https://swamp.club), covering 38 model types across compute, networking, data services, security, RBAC, Azure Policy, Defender for Cloud, Entra ID directory, monitoring, DNS, DevOps, Azure AI Foundry (accounts, model deployments, projects, quota), AI Search, Cosmos DB, Static Web Apps, Service Bus, Event Grid, subscription-wide topology visualization, and the Azure AI Vision Face REST API for identity-aware room services. Most methods run through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription. The one exception is `azure-face`, a data-plane REST type authenticated by a per-resource subscription key supplied via vault (see Vault setup below).
+Azure infrastructure management for [Swamp](https://swamp.club), covering 42 model types across compute, networking, data services, security, RBAC, Azure Policy, Defender for Cloud, Entra ID directory, monitoring, DNS, DevOps, Azure AI Foundry (accounts, model deployments, projects, quota), AI Search, Cosmos DB, PostgreSQL Flexible Server, Static Web Apps, Service Bus, Event Grid, Recovery Services, Log Analytics, subscription-wide topology visualization, and the Azure AI Vision Face REST API for identity-aware room services. Most methods run through the Azure CLI as a subprocess, so authentication delegates to whatever `az login` session is active on the machine and there is nothing proprietary sitting between you and your subscription. The one exception is `azure-face`, a data-plane REST type authenticated by a per-resource subscription key supplied via vault (see Vault setup below).
 
 Container Apps, Container Apps Jobs, and Azure Container Registry are covered by the companion extension [`@rkcoleman/azure-containers`](https://github.com/rkcoleman/swamp-azure-containers), which is designed to compose with these models.
 
@@ -50,6 +50,10 @@ Most models include a `sync` method that refreshes stored state without making c
 | `azure-staticwebapp` | Static Web Apps inventory — sites and deployment environments (read-only) |
 | `azure-servicebus` | Service Bus inventory — namespaces, queues, topics, and subscriptions with message-depth attributes (read-only) |
 | `azure-eventgrid` | Event Grid inventory — topics, system topics, and event subscriptions (read-only) |
+| `azure-postgres-flexible-server` | PostgreSQL Flexible Server inventory — servers, databases, and firewall rules (read-only) |
+| `azure-recovery-services-vault` | Recovery Services vaults and their backup items (read-only) |
+| `azure-log-analytics-workspace` | Log Analytics workspace inventory (read-only) |
+| `azure-network-interface` | Network interface inventory (read-only) |
 
 ## Method Reference
 
@@ -566,6 +570,49 @@ Read-only Event Grid inventory.
 | `syncTopic` | Refresh stored state without making changes |
 | `listSystemTopics` | List system topics |
 | `listSubscriptions` | List event subscriptions for a source resource id |
+
+### azure-postgres-flexible-server
+
+Read-only inventory of the Flexible Server offering (not the retired single server). Server, database, and firewall lifecycle stay out of scope, and no method returns connection credentials. Contributed by [@NeilHanlon](https://github.com/NeilHanlon).
+
+| Method | Description |
+|---|---|
+| `list` | List flexible servers in a resource group or subscription |
+| `get` | Get a flexible server (SKU, storage, HA, backup, network exposure) |
+| `sync` | Refresh stored state without making changes |
+| `listDatabases` | List databases on a server |
+| `listFirewallRules` | List public-access firewall rules on a server |
+
+### azure-recovery-services-vault
+
+Read-only view of backup posture. Contributed by [@NeilHanlon](https://github.com/NeilHanlon).
+
+| Method | Description |
+|---|---|
+| `list` | List Recovery Services vaults in a resource group or subscription |
+| `get` | Get a vault |
+| `sync` | Refresh stored state without making changes |
+| `listBackupItems` | List the items protected by a vault |
+
+### azure-log-analytics-workspace
+
+Read-only workspace inventory — the ingestion side of Azure Monitor. Shared keys are never fetched. Contributed by [@NeilHanlon](https://github.com/NeilHanlon).
+
+| Method | Description |
+|---|---|
+| `list` | List Log Analytics workspaces in a resource group or subscription |
+| `get` | Get a workspace (SKU, retention, ingestion settings) |
+| `sync` | Refresh stored state without making changes |
+
+### azure-network-interface
+
+Read-only NIC inventory — the join point between VMs, subnets, NSGs, and IPs that `azure-topology` approximates. Contributed by [@NeilHanlon](https://github.com/NeilHanlon).
+
+| Method | Description |
+|---|---|
+| `list` | List network interfaces in a resource group or subscription |
+| `get` | Get a NIC (IP configurations, attached VM, NSG, DNS settings) |
+| `sync` | Refresh stored state without making changes |
 
 ## Workflows
 

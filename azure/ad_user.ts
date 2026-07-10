@@ -71,7 +71,7 @@ const MembershipSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-ad-user",
-  version: "2026.07.10.2",
+  version: "2026.07.10.3",
   globalArguments: EntraGlobalArgsSchema,
   resources: {
     user: {
