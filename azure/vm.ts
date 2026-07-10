@@ -46,7 +46,7 @@ const VmInstanceViewSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-vm",
-  version: "2026.07.06.1",
+  version: "2026.07.10.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     vm: {
@@ -503,18 +503,30 @@ export const model = {
 
     deallocate: {
       description:
-        "Deallocate a VM (releases compute resources, stops charges).",
+        "Deallocate a VM (releases compute resources, stops charges). Optionally hibernate instead, preserving the in-memory state.",
       arguments: z.object({
         name: z.string().describe("VM name"),
         resourceGroup: z.string().optional().describe("Resource group name"),
+        hibernate: z
+          .boolean()
+          .optional()
+          .describe(
+            "Hibernate the VM instead of a plain deallocate (VM must be created with hibernation enabled)",
+          ),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
         const rg = requireResourceGroup(args.resourceGroup, g.resourceGroup);
-        await az(
-          ["vm", "deallocate", "--name", args.name, "--resource-group", rg],
-          g.subscriptionId,
-        );
+        const cmdArgs = [
+          "vm",
+          "deallocate",
+          "--name",
+          args.name,
+          "--resource-group",
+          rg,
+        ];
+        if (args.hibernate) cmdArgs.push("--hibernate", "true");
+        await az(cmdArgs, g.subscriptionId);
 
         context.logger.info("Deallocated VM {name}", { name: args.name });
 

@@ -59,7 +59,7 @@ Most models include a `sync` method that refreshes stored state without making c
 | `delete` | Delete a VM |
 | `start` | Start a stopped or deallocated VM |
 | `stop` | Stop (power off) a VM without deallocating |
-| `deallocate` | Deallocate a VM to stop billing for compute |
+| `deallocate` | Deallocate a VM to stop billing for compute, or hibernate it (`hibernate: true`) to preserve in-memory state |
 | `restart` | Restart a running VM |
 | `resize` | Change VM size (SKU) |
 | `listSizes` | List available VM sizes for a region |
@@ -250,13 +250,19 @@ SSH public key resources (`Microsoft.Compute/sshPublicKeys`) wrapped via `az ssh
 
 ### azure-managed-identity
 
+Covers workload identity federation as well as identity lifecycle: federated credentials let GitHub Actions, Kubernetes, or any OIDC issuer exchange its own token for the identity — no stored secret. `createFederatedCredential` matches the incoming token by exact `subject` or, on az CLI 2.87+, by a preview wildcard `claimsMatchingExpression` (exactly one of the two).
+
 | Method | Description |
 |---|---|
 | `list` | List user-assigned managed identities in a resource group or subscription |
 | `get` | Get a managed identity by name |
 | `sync` | Refresh stored state without making changes |
 | `create` | Create a user-assigned managed identity |
+| `update` | Replace the tags on a managed identity (az CLI 2.87+) |
 | `delete` | Delete a managed identity |
+| `listFederatedCredentials` | List federated identity credentials on an identity |
+| `createFederatedCredential` | Add a federated credential (issuer + subject or claims-matching expression); idempotent |
+| `deleteFederatedCredential` | Remove a federated credential; idempotent |
 
 ### azure-ad-user
 
@@ -313,11 +319,12 @@ Tenant-scoped (Entra ID). Read-only. `listCredentials` is the primary tool for c
 
 ### azure-role-assignment
 
-The direct complement to `azure-managed-identity` — granting an identity access to a Key Vault, Storage account, or resource group is a role assignment. Mutations change who can do what; verify principal, role, and scope first.
+The direct complement to `azure-managed-identity` — granting an identity access to a Key Vault, Storage account, or resource group is a role assignment. Mutations change who can do what; verify principal, role, and scope first. On az CLI 2.87+ `list` also returns assignments inherited from management groups, and `fillPrincipalName: false` / `fillRoleDefinitionName: false` skip the per-row Graph and ARM name lookups for fast bulk audits.
 
 | Method | Description |
 |---|---|
 | `list` | List role assignments at the subscription, a resource group, or an explicit scope |
+| `listDenyAssignments` | List deny assignments — Azure-managed blocks that override any role grant (read-only) |
 | `create` | Grant a principal a role at a scope |
 | `delete` | Revoke a role assignment by its fully-qualified id |
 | `listDefinitions` | List role definitions (optionally custom-only) |
@@ -482,6 +489,7 @@ The Face model wraps the [Azure AI Vision Face REST API](https://learn.microsoft
 | Workflow | Description |
 |---|---|
 | `@dougschaefer/provision-entra-user` | Operator-facing entrypoint that takes non-secret user fields (`displayName`, `userPrincipalName`, optional `mailNickname`) and delegates to `azure-ad-user.provision`. The temp password is generated inside the model and never crosses an input, log, audit entry, or stored resource. Expects an `azure-ad-user` instance named `entra-users`. |
+| `@dougschaefer/azure-rbac-audit` | Read-only subscription RBAC snapshot for access reviews: every role assignment at every scope (including management-group inheritance on az CLI 2.87+), every deny assignment, and every custom role definition, captured as versioned model data. Pass `fast: true` to skip principal/role-name resolution on large tenants. Expects an `azure-role-assignment` instance named `rbac-assignments`. |
 
 ## Installation
 

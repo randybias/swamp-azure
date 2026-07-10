@@ -1,0 +1,73 @@
+id: 54073e15-c3b5-478a-bf01-0fe073d14fc0
+name: "@dougschaefer/azure-rbac-audit"
+description: >-
+  Subscription RBAC snapshot for access reviews: every role assignment at
+  every scope (including management-group inheritance on az CLI 2.87+),
+  every deny assignment, and every custom role definition, captured as
+  versioned model data. Runs against an @dougschaefer/azure-role-assignment
+  instance named `rbac-assignments`. Read-only — changes nothing. Steps run
+  sequentially because they share one model's lock. Set fast to true to skip
+  principal/role-name resolution on large tenants.
+tags: {}
+inputs:
+  properties:
+    fast:
+      type: boolean
+      description: >-
+        Skip Microsoft Graph principal-name and role-definition-name
+        resolution for a much faster listing on large tenants (az CLI
+        2.87+). Names are omitted from the snapshot when enabled.
+  required: []
+jobs:
+  - name: audit
+    description: Capture assignments, deny assignments, and custom roles.
+    steps:
+      - name: list-assignments
+        description: >-
+          List role assignments at all scopes visible to the subscription,
+          including management-group-inherited entries.
+        task:
+          type: model_method
+          modelIdOrName: rbac-assignments
+          methodName: list
+          inputs:
+            all: true
+            fillPrincipalName: "${{ !(has(inputs.fast) && inputs.fast == true) }}"
+            fillRoleDefinitionName: "${{ !(has(inputs.fast) && inputs.fast == true) }}"
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: list-deny-assignments
+        description: >-
+          List deny assignments — Azure-managed blocks that override any
+          role grant (managed applications, Blueprints, deployment stacks).
+        task:
+          type: model_method
+          modelIdOrName: rbac-assignments
+          methodName: listDenyAssignments
+          inputs: {}
+        dependsOn:
+          - step: list-assignments
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: list-custom-roles
+        description: >-
+          List custom (non-built-in) role definitions so reviewers can see
+          exactly what any bespoke role permits.
+        task:
+          type: model_method
+          modelIdOrName: rbac-assignments
+          methodName: listDefinitions
+          inputs:
+            customOnly: true
+        dependsOn:
+          - step: list-deny-assignments
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

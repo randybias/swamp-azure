@@ -35,12 +35,31 @@ const DefinitionSchema = z
   })
   .passthrough();
 
+const DenyAssignmentSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    denyAssignmentName: z.string().nullish(),
+    description: z.string().nullish(),
+    scope: z.string().optional(),
+    doNotApplyToChildScopes: z.boolean().optional(),
+    isSystemProtected: z.boolean().optional(),
+    principals: z.array(z.record(z.string(), z.unknown())).optional(),
+    excludePrincipals: z.array(z.record(z.string(), z.unknown())).optional(),
+  })
+  .passthrough();
+
 /**
  * `@dougschaefer/azure-role-assignment` model — Azure RBAC role
  * assignments and definitions, wrapping the `az role` CLI. list
  * enumerates assignments at the subscription, a resource group, an
  * explicit scope, or (with all) every scope visible to the
- * subscription, optionally filtered to one assignee. create grants a
+ * subscription, optionally filtered to one assignee; on az CLI 2.87+
+ * it also includes assignments inherited from management groups, and
+ * the fillPrincipalName/fillRoleDefinitionName switches skip the
+ * per-row Graph and ARM name lookups for fast bulk audits.
+ * listDenyAssignments reads the subscription's deny assignments —
+ * Azure-managed blocks that win over any role grant. create grants a
  * principal a role at a scope and delete revokes it — these are the
  * direct complement to `@dougschaefer/azure-managed-identity`, since
  * granting a managed identity access to a Key Vault, Storage account,
@@ -52,7 +71,7 @@ const DefinitionSchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-role-assignment",
-  version: "2026.07.06.1",
+  version: "2026.07.10.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     assignment: {
@@ -64,6 +83,12 @@ export const model = {
     definition: {
       description: "Azure RBAC role definition",
       schema: DefinitionSchema,
+      lifetime: "infinite",
+      garbageCollection: 10,
+    },
+    denyAssignment: {
+      description: "Azure RBAC deny assignment (read-only, Azure-managed)",
+      schema: DenyAssignmentSchema,
       lifetime: "infinite",
       garbageCollection: 10,
     },
@@ -89,6 +114,18 @@ export const model = {
           .boolean()
           .optional()
           .describe("Include assignments at all scopes from the subscription"),
+        fillPrincipalName: z
+          .boolean()
+          .optional()
+          .describe(
+            "Resolve principal display names via Microsoft Graph (CLI default true). Set false to skip the lookup for fast bulk audits (az CLI 2.87+).",
+          ),
+        fillRoleDefinitionName: z
+          .boolean()
+          .optional()
+          .describe(
+            "Resolve role definition names (CLI default true). Set false to skip the lookup for fast bulk audits (az CLI 2.87+).",
+          ),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
@@ -98,6 +135,12 @@ export const model = {
         const rg = args.resourceGroup || g.resourceGroup;
         if (rg && !args.scope) cmdArgs.push("--resource-group", rg);
         if (args.all) cmdArgs.push("--all");
+        if (args.fillPrincipalName === false) {
+          cmdArgs.push("--fill-principal-name", "false");
+        }
+        if (args.fillRoleDefinitionName === false) {
+          cmdArgs.push("--fill-role-definition-name", "false");
+        }
 
         const assignments = (await az(cmdArgs, g.subscriptionId)) as Array<
           Record<string, unknown>
@@ -238,6 +281,48 @@ export const model = {
           }
         }
         return { dataHandles: [] };
+      },
+    },
+
+    listDenyAssignments: {
+      description:
+        "List RBAC deny assignments — Azure-managed blocks (from managed applications, Blueprints, or deployment stacks) that override any role grant. Read-only.",
+      arguments: z.object({
+        scope: z
+          .string()
+          .optional()
+          .describe("Explicit ARM scope id to list deny assignments at"),
+        filter: z
+          .string()
+          .optional()
+          .describe(
+            "OData filter, e.g. atScope() or principalId eq '<object-id>'",
+          ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        const cmdArgs = ["role", "deny-assignment", "list"];
+        if (args.scope) cmdArgs.push("--scope", args.scope);
+        if (args.filter) cmdArgs.push("--filter", args.filter);
+
+        const denials = (await az(cmdArgs, g.subscriptionId)) as Array<
+          Record<string, unknown>
+        >;
+
+        context.logger.info("Found {count} deny assignments", {
+          count: denials.length,
+        });
+
+        const handles = [];
+        for (const d of denials) {
+          const handle = await context.writeResource(
+            "denyAssignment",
+            sanitizeInstanceName(d.name as string),
+            d,
+          );
+          handles.push(handle);
+        }
+        return { dataHandles: handles };
       },
     },
 
