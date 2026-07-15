@@ -38,7 +38,7 @@ import {
  */
 export const model = {
   type: "@dougschaefer/azure-face",
-  version: "2026.07.10.3",
+  version: "2026.07.14.1",
   globalArguments: AzureFaceGlobalArgsSchema,
   resources: {
     detectionResult: {

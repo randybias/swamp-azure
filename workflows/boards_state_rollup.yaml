@@ -1,0 +1,90 @@
+id: 584d6379-ca70-4bcf-93fa-51218972fe73
+name: "@dougschaefer/boards-state-rollup"
+description: >-
+  Roll Azure Boards parent work-item state up from children: a parent moves to
+  in-progress as soon as any child starts, and to done once every child is done.
+
+  Azure DevOps cannot do this natively. Inherited-process rules only act on the
+  work item that triggered them — no rule action writes to a parent — and the
+  stock Basic process is a system process that cannot carry custom rules at all.
+  Marketplace extensions close the gap by taking org-wide board write access;
+  this workflow keeps the writes inside swamp, where they are versioned and
+  audited.
+
+  Runs against an @dougschaefer/azure-devops instance named `azure-boards`; the
+  organization and project come from that instance's global arguments. The
+  rollup is computed bottom-up in one sweep — tasks feed their issue and issues
+  feed their epic in a single pass — and only parents whose state actually
+  differs get patched. By default it only ever advances state, so a parent a
+  human deliberately set to in-progress is never walked backwards by its
+  children (set allowRegression to change that).
+
+  State names default to the Basic process (To Do / Doing / Done). Override
+  todoState/doingState/doneState for an Agile (New / Active / Closed) or Scrum
+  board.
+
+  SAFE BY DEFAULT — dryRun defaults to true, so running this workflow with no
+  inputs can only preview. Pass dryRun=false to write.
+tags: {}
+inputs:
+  properties:
+    dryRun:
+      type: boolean
+      description: >-
+        Preview only. Defaults to true so an argument-less run can never modify
+        the board. Pass false to actually patch parent states.
+      default: true
+    allowRegression:
+      type: boolean
+      description: >-
+        Let a parent move backwards — e.g. done back to in-progress when a child
+        is reopened. Off by default, which keeps the sweep advance-only so it
+        never overrides a state a human set by hand.
+      default: false
+    todoState:
+      type: string
+      description: >-
+        State name meaning "not started". Defaults to the Basic process value;
+        set to "New" for Agile or your board's equivalent.
+      default: To Do
+    doingState:
+      type: string
+      description: >-
+        State name meaning "in progress". Defaults to the Basic process value;
+        set to "Active" for Agile or your board's equivalent.
+      default: Doing
+    doneState:
+      type: string
+      description: >-
+        State name meaning "complete". Defaults to the Basic process value; set
+        to "Closed" for Agile or your board's equivalent.
+      default: Done
+  required: []
+jobs:
+  - name: rollup
+    description: Sweep the project and reconcile parent states against their children.
+    steps:
+      - name: reconcile-parent-states
+        description: >-
+          Fan-out sweep: one call reads every work item in the project via WIQL,
+          computes each parent's desired state from its children bottom-up, and
+          patches only the ones that differ. A single call rather than a loop of
+          per-epic calls, so the model lock is taken once. Writes a `rollup`
+          resource recording what changed — or what would change, on a dry run —
+          which is the audit record for the sweep.
+        task:
+          type: model_method
+          modelIdOrName: azure-boards
+          methodName: rollupParentStates
+          inputs:
+            dryRun: '${{ inputs.dryRun }}'
+            allowRegression: '${{ inputs.allowRegression }}'
+            todoState: '${{ inputs.todoState }}'
+            doingState: '${{ inputs.doingState }}'
+            doneState: '${{ inputs.doneState }}'
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

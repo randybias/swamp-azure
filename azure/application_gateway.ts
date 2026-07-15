@@ -66,7 +66,7 @@ const AppGatewaySchema = z
  */
 export const model = {
   type: "@dougschaefer/azure-application-gateway",
-  version: "2026.07.10.3",
+  version: "2026.07.14.1",
   globalArguments: AzureGlobalArgsSchema,
   resources: {
     appGateway: {
